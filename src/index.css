@@ -988,6 +988,16 @@ html, body, #root {
   border-bottom: none !important;
 }
 
+/* ── Nav bottom sheet base styles (desktop: always show steps) ─── */
+.nav-sheet-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.nav-sheet-handle { display: none; }
+.nav-sheet-toggle { display: none; }
+
 /* ═══════════════════════════════════════════════════════
    MOBILE RESPONSIVE — Primary Breakpoints
    ═══════════════════════════════════════════════════════ */

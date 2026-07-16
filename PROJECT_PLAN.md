@@ -148,11 +148,11 @@
 | Home Page | ✅ Done | Landing / welcome screen |
 | Login Page | ✅ Done | User sign in |
 | Register Page | ✅ Done | New user registration |
-| Map Page | ⬜ Phase 3 | Interactive map view |
-| Navigation Page | ⬜ Phase 4 | Turn-by-turn navigation |
-| Store Details | ⬜ Phase 5 | Individual store info |
-| Exhibition Details | ⬜ Phase 5 | Individual exhibition info |
-| Search Page | ⬜ Phase 5 | Global search |
+| Map Page | ✅ Done | Interactive map view |
+| Navigation Page | ✅ Done | Turn-by-turn navigation |
+| Store Details | ✅ Done | Individual store info |
+| Exhibition Details | ✅ Done | Individual exhibition info |
+| Search Page | ✅ Done | Global search |
 | Profile Page | ✅ Done | User profile & settings |
 | Admin Dashboard | ✅ Done | Admin control panel |
 | Settings | ⬜ Later | App settings |
@@ -161,17 +161,17 @@
 ### 🧩 Components
 | Component | Status | Purpose |
 |---|---|---|
-| Navbar | ⬜ | Top navigation bar |
+| Navbar | ✅ Done | Top navigation bar |
 | Sidebar | ✅ Done | Side menu |
-| Map | ⬜ Phase 3 | Leaflet.js map component |
+| Map | ✅ Done | Leaflet.js map component |
 | GPS Button | ✅ Done | Trigger location detection |
-| Store Card | ⬜ Phase 5 | Store list item card |
-| Exhibition Card | ⬜ Phase 5 | Exhibition list item card |
-| Search Bar | ⬜ Phase 5 | Global search input |
-| Navigation Panel | ⬜ Phase 4 | Route display panel |
-| Bottom Navigation | ⬜ | Mobile bottom nav bar |
+| Store Card | ✅ Done | Store list item card |
+| Exhibition Card | ✅ Done | Exhibition list item card |
+| Search Bar | ✅ Done | Global search input |
+| Navigation Panel | ✅ Done | Route display panel |
+| Bottom Navigation | ✅ Done | Mobile bottom nav bar |
 | Profile Card | ✅ Done | User info card |
-| Notification Popup | ⬜ Phase 7 | Alert/announcement popup |
+| Notification Popup | ✅ Done | Alert/announcement popup |
 | Loading Screen | ✅ Done | App loading state |
 | GPS Permission Banner | ✅ Done | GPS nudge banner |
 | Protected Route | ✅ Done | Auth route guard |
@@ -184,8 +184,8 @@
 - [x] **Authentication API** — Register, login, logout, session management
 - [x] **Store API** — CRUD for stores
 - [x] **Exhibition API** — CRUD for exhibitions
-- [ ] **Navigation API** — Nodes, edges, path calculation
-- [ ] **Search API** — Unified search across all entities
+- [x] **Navigation API** — Nodes, edges, path calculation
+- [x] **Search API** — Unified search across all entities
 - [x] **Location API** — Real-time user location update & fetch
 - [x] **Realtime API** — Supabase Realtime subscriptions
 - [x] **Announcement API** — Create and broadcast announcements
@@ -220,21 +220,21 @@ Step 7 → Continuously update user location in real-time
 ## 7. Map Features
 
 ### Core Map Elements
-- [ ] Current location marker (live)
-- [ ] Destination marker
-- [ ] Store markers
-- [ ] Exhibition markers
+- [x] Current location marker (live)
+- [x] Destination marker
+- [x] Store markers
+- [x] Exhibition markers
 
 ### Facility Markers
-- [ ] Parking
-- [ ] Washrooms
-- [ ] Food courts
-- [ ] Emergency exits
+- [x] Parking
+- [x] Washrooms
+- [x] Food courts
+- [x] Emergency exits
 
 ### Controls
-- [ ] Zoom in / Zoom out
-- [ ] Compass / Orientation
-- [ ] Navigation line (polyline along route)
+- [x] Zoom in / Zoom out
+- [x] Compass / Orientation
+- [x] Navigation line (polyline along route)
 
 ---
 
@@ -360,18 +360,18 @@ GitHub (push) → Cloudflare Pages (frontend auto-deploy) → Supabase (backend 
 - [ ] Test GPS accuracy on real devices
 - [ ] Perform load testing (simulate N users)
 - [ ] Test all API endpoints
-- [ ] Cross-browser & mobile testing
-- [ ] Fix bugs found during testing
+- [x] Cross-browser & mobile testing
+- [x] Fix bugs found during testing
 
 ---
 
 ### Phase 9 — Deployment
-- [ ] Connect GitHub repo to Cloudflare Pages
-- [ ] Set all environment variables on Cloudflare
+- [x] Connect GitHub repo to Cloudflare Pages
+- [x] Set all environment variables on Cloudflare
 - [x] Run final production build
-- [ ] Verify all features on production URL
+- [x] Verify all features on production URL
 - [ ] Set up custom domain (if applicable)
-- [ ] Monitor Supabase dashboard after launch
+- [x] Monitor Supabase dashboard after launch
 
 ---
 

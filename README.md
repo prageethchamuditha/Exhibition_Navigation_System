@@ -1,55 +1,59 @@
-# React + TypeScript + Vite
+# 🗺️ Custom Exhibition Navigation & Live Tracking System
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Interactive indoor/outdoor map routing, directory search, realtime alerts, and administrative features built using React, Vite, Leaflet, and Supabase.
 
 ---
 
-## 🚀 Deployed to Cloudflare Pages
+## ✅ Completed Tasks & Features
 
-To deploy the frontend application to Cloudflare Pages directly from your terminal:
+### 👤 1. Authentication & Profiles
+*   **Sign-in & Sign-up**: Full authentication flows backed by Supabase Auth.
+*   **Visitor Mode**: Anonymous browsing support.
+*   **Role-Based Access Control**: Visitor vs. Registered User vs. Admin permissions.
+
+### 🧭 2. Realtime Navigation
+*   **Custom Map Interface**: Leaflet.js rendering customized dark-matter layers.
+*   **Shortest Path Routing**: Client-side Dijkstra / A* algorithm calculating node paths.
+*   **GPS Tracker integration**: High-accuracy live geolocation tracking with a grace fallback mock position manager.
+
+### 📱 3. Mobile Optimization
+*   **Responsive Layouts**: Multi-breakpoint viewport configurations supporting small screen sizes (down to 320px).
+*   **Draggable Pull-up Bottom Sheet**: Interactive Google Maps-style route information sheet.
+*   **Fixed Overlaps**: Compact toolbar and safe-area notch supports (`viewport-fit=cover`).
+
+### ⚡ 4. Performance Optimizations
+*   **React Code Splitting**: All pages use React `lazy` and `Suspense` loaders to load on-demand.
+*   **Vite Bundle Chunking**: Split vendor dependencies (React, Leaflet, Supabase) into independent cached assets.
+
+### 🔔 5. Realtime Alerts
+*   **Live Announcements**: Supabase PostgreSQL event broadcasting showing popup alerts and emergency broadcasts.
+
+---
+
+## 📋 Remaining / Future Work
+1.  **Phase 8 Testing**: Expand unit tests for shortest-path calculation, execute simulated concurrent visitor load testing.
+2.  **Future Enhancements**: QR code check-ins, indoor Bluetooth beacons, PWA offline caching.
+
+---
+
+## 🚀 Deployment (Cloudflare Pages)
+
+To deploy the application to Cloudflare Pages:
 
 ### 1. Build the Production Bundle
-Compile the React + Vite static assets inside the `dist` folder:
+Compile production-ready code with code splitting:
 ```bash
 npm run build
 ```
 
 ### 2. Deploy via Wrangler CLI
-Upload the bundle directly using the Cloudflare Pages Wrangler CLI:
+Upload assets using Wrangler:
 ```bash
-npx wrangler pages deploy dist --project-name exhibition-navigation-system --branch main
+npx wrangler pages deploy dist --project-name exhibition-navigation-system --branch main --commit-dirty=true
 ```
 
-### 3. Setup Environment Variables
-Configure the environment variables in your Cloudflare dashboard under **Workers & Pages > exhibition-navigation-system > Settings > Environment Variables**:
+### 3. Environment Variables
+Add environment variables under **Settings > Environment Variables**:
 *   `VITE_SUPABASE_URL`
 *   `VITE_SUPABASE_ANON_KEY`
+
