@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Search, Calendar, MapPin, ArrowLeft, CalendarDays, Star,
-  ChevronRight, Clock, TrendingUp, Sparkles,
+  ChevronRight, Clock, TrendingUp,
 } from 'lucide-react';
 import { supabase, type Exhibition } from '../lib/supabase';
 
