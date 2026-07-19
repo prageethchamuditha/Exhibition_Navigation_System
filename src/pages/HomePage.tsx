@@ -11,6 +11,10 @@ import {
   Star,
   Search,
   Bell,
+  Sparkles,
+  Clock,
+  TrendingUp,
+  ChevronRight,
 } from 'lucide-react';
 import { supabase, type Exhibition, type Store as StoreType } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -48,7 +52,6 @@ export function HomePage() {
   async function loadDashboardData() {
     try {
       setLoading(true);
-      // Fetch both active exhibitions and stores concurrently
       const [exhibitionsRes, storesRes] = await Promise.all([
         supabase
           .from('exhibitions')
@@ -85,171 +88,175 @@ export function HomePage() {
     }
   };
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
+
   return (
     <>
       <GPSPermissionBanner />
-      <div className="profile-page" style={{ maxWidth: 840, paddingBottom: '3rem' }}>
-        
-        {/* Brand Welcome Banner */}
-        <header className="glass home-header" style={{
-          padding: '2.25rem 2rem',
-          marginBottom: '2rem',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '1.5rem',
-          flexWrap: 'wrap',
-          position: 'relative',
-          overflow: 'hidden'
-        }}>
-          {/* Subtle background glow effect */}
-          <div style={{
-            position: 'absolute',
-            top: '-20px',
-            right: '-20px',
-            width: '120px',
-            height: '120px',
-            borderRadius: '50%',
-            background: 'var(--color-primary)',
-            filter: 'blur(60px)',
-            opacity: 0.4,
-            pointerEvents: 'none'
-          }} />
+      <div className="profile-page home-enhanced" style={{ maxWidth: 880, paddingBottom: '4rem' }}>
 
-          <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-            <div className="brand-icon" style={{ width: 60, height: 60, borderRadius: '14px', flexShrink: 0 }}>
-              <MapPin size={28} color="#fff" />
+        {/* ── Premium Header ─────────────────────────────────── */}
+        <header className="home-header-enhanced">
+          {/* Animated background orbs */}
+          <div className="home-header-orb home-header-orb-1" />
+          <div className="home-header-orb home-header-orb-2" />
+
+          <div className="home-header-left">
+            <div className="brand-icon home-brand-icon">
+              <MapPin size={26} color="#fff" />
             </div>
             <div>
-              <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', margin: 0 }}>
-                Exhibition Navigator
-              </h1>
-              <p style={{ color: 'var(--color-muted)', fontSize: '0.925rem', marginTop: '0.2rem' }}>
-                Welcome, {profile?.name || 'Visitor'}! Navigate booths, explore promos, and view schedules.
-              </p>
+              <p className="home-greeting">{getGreeting()}, {profile?.name?.split(' ')[0] || 'Visitor'} 👋</p>
+              <h1 className="home-title">Exhibition Navigator</h1>
+              <p className="home-subtitle">Explore booths, discover promotions, and navigate in real time.</p>
             </div>
           </div>
 
-          <div className="home-header-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <Link to="/search" className="btn btn-ghost btn-sm">
-              <Search size={14} style={{ marginRight: 4 }} />
-              Search Directory
+          <div className="home-header-actions">
+            <Link to="/search" className="btn btn-ghost btn-sm home-action-btn" id="home-search-btn">
+              <Search size={14} />
+              Search
             </Link>
             <button
               onClick={handleOpenAnnouncements}
-              className="btn btn-ghost btn-sm btn-icon"
-              style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              className="btn btn-ghost btn-sm btn-icon home-bell-btn"
               title="View Announcements"
+              id="home-announcements-btn"
             >
               <Bell size={16} />
               {unreadNotifications > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: '1px',
-                  right: '1px',
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: '#ef4444',
-                  boxShadow: '0 0 4px #ef4444',
-                }} />
+                <span className="notification-dot">
+                  {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                </span>
               )}
             </button>
-            <Link to="/profile" className="btn btn-ghost btn-sm">
-              <User size={14} style={{ marginRight: 4 }} />
-              My Profile
+            <Link to="/profile" className="btn btn-ghost btn-sm home-action-btn" id="home-profile-btn">
+              <User size={14} />
+              Profile
             </Link>
-            <button className="btn btn-danger btn-sm" onClick={handleSignOut}>
-              <LogOut size={14} style={{ marginRight: 4 }} />
-              Sign Out
+            <button className="btn btn-danger btn-sm" onClick={handleSignOut} id="home-signout-btn">
+              <LogOut size={14} />
+              Out
             </button>
           </div>
         </header>
 
-        {/* Primary Call-to-Action: Open Map button */}
-        <section className="glass home-map-cta" style={{
-          padding: '1.5rem 1.75rem',
-          marginBottom: '2rem',
-          background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(34,211,238,0.06) 100%)',
-          borderColor: 'rgba(99,102,241,0.25)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '1rem',
-          flexWrap: 'wrap',
-        }}>
-          <div>
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>Interactive Floor Map</h2>
-            <p style={{ color: 'var(--color-muted)', fontSize: '0.85rem', marginTop: '0.2rem' }}>
-              Locate stores, draw routes, and track your GPS location in real time.
-            </p>
+        {/* ── Map CTA ────────────────────────────────────────── */}
+        <section className="home-map-cta-enhanced">
+          <div className="home-map-cta-glow" />
+          <div className="home-map-cta-content">
+            <div className="home-map-cta-icon">
+              <Navigation size={22} color="#fff" style={{ transform: 'rotate(45deg)' }} />
+            </div>
+            <div>
+              <h2 className="home-map-cta-title">Interactive Floor Map</h2>
+              <p className="home-map-cta-desc">
+                Live GPS tracking · Route planning · Real-time booth locations
+              </p>
+            </div>
           </div>
-          <Link to="/map" className="btn btn-primary" style={{ padding: '0.65rem 1.25rem', gap: '0.4rem' }}>
-            <Navigation size={15} style={{ transform: 'rotate(45deg)' }} />
+          <Link to="/map" className="btn btn-primary home-map-cta-btn" id="home-open-map-btn">
             Open Map
-            <ArrowRight size={14} />
+            <ArrowRight size={15} />
           </Link>
         </section>
 
-        {/* Main Dashboard Panels Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
-          
-          {/* Exhibitions Panel */}
-          <section className="glass" style={{ padding: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>Featured Exhibitions</h3>
-                <p style={{ color: 'var(--color-muted)', fontSize: '0.8rem', margin: 0 }}>Discover ongoing events & summits</p>
+        {/* ── Stats Bar ──────────────────────────────────────── */}
+        <div className="home-stats-bar">
+          <div className="home-stat-chip">
+            <TrendingUp size={14} />
+            <span>{loading ? '—' : exhibitions.length} Active Events</span>
+          </div>
+          <div className="home-stat-divider" />
+          <div className="home-stat-chip">
+            <Store size={14} />
+            <span>{loading ? '—' : stores.length} Exhibitors</span>
+          </div>
+          <div className="home-stat-divider" />
+          <div className="home-stat-chip">
+            <MapPin size={14} />
+            <span>Live Navigation</span>
+          </div>
+        </div>
+
+        {/* ── Main Content Grid ───────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2.5rem' }}>
+
+          {/* ── Featured Exhibitions ─────────────────────────── */}
+          <section>
+            <div className="home-section-header">
+              <div className="home-section-title-wrap">
+                <div className="home-section-icon home-section-icon-purple">
+                  <CalendarDays size={16} color="#fff" />
+                </div>
+                <div>
+                  <h2 className="home-section-title">Featured Exhibitions</h2>
+                  <p className="home-section-sub">Ongoing events & summits near you</p>
+                </div>
               </div>
-              <Link to="/exhibitions" style={{ fontSize: '0.8rem', color: 'var(--color-primary-h)', fontWeight: 600, textDecoration: 'none' }}>
-                View All Events →
+              <Link to="/exhibitions" className="home-view-all-link" id="home-view-all-exhibitions">
+                View All <ChevronRight size={14} />
               </Link>
             </div>
 
             {loading ? (
-              <div className="spinner" style={{ margin: '2rem auto' }} />
+              <div className="home-exhibitions-grid">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="glass skeleton home-ex-skeleton" />
+                ))}
+              </div>
             ) : exhibitions.length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--color-muted)', fontSize: '0.875rem' }}>
-                No active exhibitions found.
-              </p>
+              <div className="home-empty-state">
+                <CalendarDays size={32} style={{ opacity: 0.35 }} />
+                <p>No active exhibitions right now.</p>
+              </div>
             ) : (
-              <div className="home-grid-exhibitions" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+              <div className="home-exhibitions-grid">
                 {exhibitions.map((ex) => (
                   <Link
                     key={ex.id}
                     to={`/exhibitions/${ex.id}`}
-                    style={{
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      textDecoration: 'none',
-                      color: 'inherit',
-                      display: 'flex',
-                      gap: '0.875rem',
-                      alignItems: 'center',
-                      transition: 'border-color 0.2s',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border)')}
+                    className="home-ex-card"
+                    id={`home-ex-card-${ex.id}`}
                   >
-                    {ex.image_url ? (
-                      <img src={ex.image_url} alt="" style={{ width: 44, height: 44, borderRadius: '6px', objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: 44, height: 44, borderRadius: '6px', background: 'var(--color-surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <CalendarDays size={18} color="var(--color-muted)" />
-                      </div>
-                    )}
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <h4 style={{ fontSize: '0.875rem', fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {ex.title}
-                        </h4>
-                        {ex.is_featured && <Star size={11} fill="var(--color-warning)" color="var(--color-warning)" />}
-                      </div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                    {/* Thumbnail / Image */}
+                    <div className="home-ex-thumb">
+                      {ex.image_url ? (
+                        <img src={ex.image_url} alt={ex.title} className="home-ex-thumb-img" />
+                      ) : (
+                        <div className="home-ex-thumb-placeholder">
+                          <CalendarDays size={24} color="rgba(255,255,255,0.4)" />
+                        </div>
+                      )}
+                      {ex.is_featured && (
+                        <span className="home-ex-featured-badge">
+                          <Star size={9} fill="currentColor" /> Featured
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Details */}
+                    <div className="home-ex-details">
+                      <h3 className="home-ex-title">{ex.title}</h3>
+                      <span className="home-ex-location">
+                        <MapPin size={11} />
                         {ex.location || 'Exhibition Area'}
                       </span>
+                      {(ex.start_date || ex.end_date) && (
+                        <span className="home-ex-dates">
+                          <Clock size={11} />
+                          {ex.start_date || '?'} – {ex.end_date || '?'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="home-ex-arrow">
+                      <ChevronRight size={14} />
                     </div>
                   </Link>
                 ))}
@@ -257,60 +264,90 @@ export function HomePage() {
             )}
           </section>
 
-          {/* Active Stores Panel */}
-          <section className="glass" style={{ padding: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>Participant Exhibitors</h3>
-                <p style={{ color: 'var(--color-muted)', fontSize: '0.8rem', margin: 0 }}>Browse directory and booths list</p>
+          {/* ── Participant Exhibitors (Stores) ──────────────── */}
+          <section>
+            <div className="home-section-header">
+              <div className="home-section-title-wrap">
+                <div className="home-section-icon home-section-icon-cyan">
+                  <Store size={16} color="#fff" />
+                </div>
+                <div>
+                  <h2 className="home-section-title">Participant Exhibitors</h2>
+                  <p className="home-section-sub">Browse booths, stalls & brand partners</p>
+                </div>
               </div>
-              <Link to="/stores" style={{ fontSize: '0.8rem', color: 'var(--color-primary-h)', fontWeight: 600, textDecoration: 'none' }}>
-                View All Stores →
+              <Link to="/stores" className="home-view-all-link" id="home-view-all-stores">
+                View All <ChevronRight size={14} />
               </Link>
             </div>
 
             {loading ? (
-              <div className="spinner" style={{ margin: '2rem auto' }} />
+              <div className="home-stores-grid">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="glass skeleton home-store-skeleton" />
+                ))}
+              </div>
             ) : stores.length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--color-muted)', fontSize: '0.875rem' }}>
-                No active stores found.
-              </p>
+              <div className="home-empty-state">
+                <Store size={32} style={{ opacity: 0.35 }} />
+                <p>No active exhibitors found.</p>
+              </div>
             ) : (
-              <div className="home-grid-stores" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+              <div className="home-stores-grid">
                 {stores.map((st) => (
                   <Link
                     key={st.id}
                     to={`/stores/${st.id}`}
+                    className="home-store-card"
+                    id={`home-store-card-${st.id}`}
                     style={{
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '8px',
-                      padding: '1rem',
-                      textDecoration: 'none',
-                      color: 'inherit',
-                      display: 'flex',
-                      gap: '0.75rem',
-                      alignItems: 'center',
-                      transition: 'border-color 0.2s',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-primary)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border)')}
+                      '--store-cat-color': st.categories?.color || 'var(--color-primary)',
+                    } as React.CSSProperties}
                   >
-                    {st.logo_url ? (
-                      <img src={st.logo_url} alt="" style={{ width: 36, height: 36, borderRadius: '6px', objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: 36, height: 36, borderRadius: '6px', background: 'var(--color-surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Store size={16} color="var(--color-muted)" />
-                      </div>
-                    )}
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <h4 style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {st.name}
-                      </h4>
-                      <span style={{ fontSize: '0.725rem', color: 'var(--color-muted)' }}>
-                        Floor {st.floor || '1'} {st.categories ? `· ${st.categories.name}` : ''}
+                    {/* Category color accent bar */}
+                    <div
+                      className="home-store-accent"
+                      style={{ background: st.categories?.color || 'var(--color-primary)' }}
+                    />
+
+                    {/* Logo */}
+                    <div className="home-store-logo-wrap">
+                      {st.logo_url ? (
+                        <img src={st.logo_url} alt={st.name} className="home-store-logo" />
+                      ) : (
+                        <div className="home-store-logo-placeholder">
+                          <Store size={18} color="var(--color-muted)" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="home-store-info">
+                      <h3 className="home-store-name">{st.name}</h3>
+                      <span className="home-store-meta">
+                        Floor {st.floor || '1'}
+                        {st.categories ? ` · ${st.categories.name}` : ''}
                       </span>
                     </div>
+
+                    {/* Category chip */}
+                    {st.categories && (
+                      <span
+                        className="home-store-cat-chip"
+                        style={{
+                          background: `${st.categories.color}20`,
+                          color: st.categories.color || 'var(--color-primary-h)',
+                          borderColor: `${st.categories.color}40`,
+                        }}
+                      >
+                        {st.categories.name}
+                      </span>
+                    )}
+
+                    {/* Promo star */}
+                    {(st.phone || st.website) && (
+                      <Sparkles size={13} className="home-store-sparkle" color="var(--color-warning)" />
+                    )}
                   </Link>
                 ))}
               </div>

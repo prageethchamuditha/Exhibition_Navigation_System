@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, MapPin, Clock, ArrowLeft, Store, Star } from 'lucide-react';
+import {
+  Search, MapPin, Clock, ArrowLeft, Store, Star,
+  Filter, ChevronRight, Sparkles, LayoutGrid, List,
+} from 'lucide-react';
 import { supabase, type Store as StoreType, type Category } from '../lib/supabase';
+
+type ViewMode = 'grid' | 'list';
 
 export function StoreDirectoryPage() {
   const [stores, setStores] = useState<StoreType[]>([]);
@@ -10,6 +15,7 @@ export function StoreDirectoryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedFloor, setSelectedFloor] = useState('');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
 
   useEffect(() => {
     loadData();
@@ -40,236 +46,306 @@ export function StoreDirectoryPage() {
     }
   }
 
-  // Filter stores based on search, category and floor selections
   const filteredStores = stores.filter((st) => {
     const matchesSearch =
       st.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (st.description && st.description.toLowerCase().includes(searchQuery.toLowerCase()));
-
     const matchesCategory = !selectedCategory || st.category_id === selectedCategory;
     const matchesFloor = !selectedFloor || st.floor === selectedFloor;
-
     return matchesSearch && matchesCategory && matchesFloor;
   });
 
-  // Extract unique floor levels present in stores
   const floorLevels = Array.from(
     new Set(stores.map((s) => s.floor).filter(Boolean))
   ).sort();
 
+  const isOpen = (openingTime?: string | null, closingTime?: string | null) => {
+    if (!openingTime || !closingTime) return null;
+    const now = new Date();
+    const [oh, om] = openingTime.split(':').map(Number);
+    const [ch, cm] = closingTime.split(':').map(Number);
+    const mins = now.getHours() * 60 + now.getMinutes();
+    return mins >= oh * 60 + om && mins < ch * 60 + cm;
+  };
+
   return (
-    <div className="profile-page" style={{ maxWidth: 800 }}>
-      {/* Header Back button */}
-      <Link
-        to="/"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.4rem',
-          color: 'var(--color-muted)',
-          textDecoration: 'none',
-          fontSize: '0.875rem',
-          marginBottom: '1.5rem',
-        }}
-      >
+    <div className="profile-page store-dir-enhanced" style={{ maxWidth: 840 }}>
+
+      {/* ── Back Navigation ─────────────────────────────── */}
+      <Link to="/" className="dir-back-link" id="stores-back-btn">
         <ArrowLeft size={16} />
         Back to Home
       </Link>
 
-      <header style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
-          Exhibitor Directory
-        </h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.95rem', marginTop: '0.25rem' }}>
-          Explore stores, food stalls, booths, and special deals
-        </p>
+      {/* ── Page Header ─────────────────────────────────── */}
+      <header className="dir-page-header">
+        <div className="dir-header-main">
+          <div className="dir-header-icon dir-header-icon-cyan">
+            <Store size={22} color="#fff" />
+          </div>
+          <div>
+            <h1 className="dir-page-title">Exhibitor Directory</h1>
+            <p className="dir-page-desc">
+              Explore stores, food stalls, booths, and special deals
+            </p>
+          </div>
+        </div>
+        <div className="dir-count-badge">
+          {loading ? '…' : `${filteredStores.length} Exhibitors`}
+        </div>
       </header>
 
-      {/* Directory Search & Filters Panel */}
-      <section className="glass" style={{ padding: '1.25rem', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div className="search-wrap" style={{ width: '100%' }}>
-          <Search size={18} className="search-icon" />
-          <input
-            type="text"
-            placeholder="Search exhibitors by name or brand keywords..."
-            className="search-input"
-            style={{ width: '100%', paddingLeft: '2.6rem' }}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      {/* ── Search & Filter Panel ────────────────────────── */}
+      <section className="glass dir-filter-panel" id="stores-filter-panel">
+        <div className="dir-search-row">
+          <div className="search-wrap dir-search-wrap">
+            <Search size={18} className="search-icon" />
+            <input
+              id="stores-search-input"
+              type="text"
+              placeholder="Search by name, brand or keyword…"
+              className="search-input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          {/* View toggle */}
+          <div className="dir-view-toggle">
+            <button
+              id="stores-view-list"
+              className={`dir-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+              onClick={() => setViewMode('list')}
+              title="List view"
+            >
+              <List size={16} />
+            </button>
+            <button
+              id="stores-view-grid"
+              className={`dir-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              onClick={() => setViewMode('grid')}
+              title="Grid view"
+            >
+              <LayoutGrid size={16} />
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
-          <div className="form-group">
-            <label className="form-label" style={{ fontSize: '0.7rem' }}>Filter by Category</label>
+        <div className="dir-selects-row">
+          <div className="form-group" style={{ flex: 1 }}>
+            <label className="form-label">
+              <Filter size={11} style={{ display: 'inline', marginRight: 4 }} />
+              Category
+            </label>
             <select
+              id="stores-category-filter"
               className="form-select"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
             >
               <option value="">All Categories</option>
               {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
           </div>
-
-          <div className="form-group">
-            <label className="form-label" style={{ fontSize: '0.7rem' }}>Filter by Floor</label>
+          <div className="form-group" style={{ flex: 1 }}>
+            <label className="form-label">
+              <MapPin size={11} style={{ display: 'inline', marginRight: 4 }} />
+              Floor Level
+            </label>
             <select
+              id="stores-floor-filter"
               className="form-select"
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
             >
               <option value="">All Floors</option>
               {floorLevels.map((fl) => (
-                <option key={fl} value={fl!}>
-                  Floor {fl}
-                </option>
+                <option key={fl} value={fl!}>Floor {fl}</option>
               ))}
             </select>
           </div>
         </div>
       </section>
 
-      {/* Quick Category Chips */}
-      <section style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+      {/* ── Category Chips ────────────────────────────────── */}
+      <section className="dir-chips-row" aria-label="Category quick filters">
         <button
-          className={`btn btn-sm ${!selectedCategory ? 'btn-primary' : 'btn-ghost'}`}
+          id="stores-cat-all"
+          className={`dir-cat-chip ${!selectedCategory ? 'active' : ''}`}
           onClick={() => setSelectedCategory('')}
-          style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem' }}
         >
           All
         </button>
         {categories.map((cat) => (
           <button
             key={cat.id}
-            className={`btn btn-sm ${selectedCategory === cat.id ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setSelectedCategory(cat.id)}
+            id={`stores-cat-${cat.id}`}
+            className={`dir-cat-chip ${selectedCategory === cat.id ? 'active' : ''}`}
+            onClick={() => setSelectedCategory(selectedCategory === cat.id ? '' : cat.id)}
             style={{
-              padding: '0.35rem 0.85rem',
-              fontSize: '0.8rem',
-              borderColor: selectedCategory === cat.id ? undefined : `${cat.color || 'var(--color-border)'}40`,
-            }}
+              '--chip-color': cat.color || 'var(--color-primary)',
+            } as React.CSSProperties}
           >
+            <span
+              className="dir-cat-dot"
+              style={{ background: cat.color || 'var(--color-primary)' }}
+            />
             {cat.name}
           </button>
         ))}
       </section>
 
-      {/* Stores Directory Grid */}
-      <section style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
+      {/* ── Stores List / Grid ───────────────────────────── */}
+      <section
+        className={viewMode === 'grid' ? 'stores-grid-view' : 'stores-list-view'}
+        aria-label="Exhibitor listings"
+      >
         {loading ? (
-          Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="glass skeleton" style={{ height: '90px', width: '100%' }} />
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="glass skeleton store-card-skeleton" />
           ))
         ) : filteredStores.length === 0 ? (
-          <div className="glass" style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--color-muted)' }}>
-            <Store size={36} style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
-            <p style={{ fontSize: '0.95rem' }}>No exhibitors match your filters.</p>
+          <div className="dir-empty-state">
+            <Store size={40} style={{ opacity: 0.3 }} />
+            <h3>No Exhibitors Found</h3>
+            <p>Try adjusting your search or filter criteria.</p>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setSearchQuery(''); setSelectedCategory(''); setSelectedFloor(''); }}
+            >
+              Clear Filters
+            </button>
           </div>
+        ) : viewMode === 'list' ? (
+          filteredStores.map((st) => {
+            const openStatus = isOpen(st.opening_time, st.closing_time);
+            return (
+              <Link
+                key={st.id}
+                to={`/stores/${st.id}`}
+                className="store-list-card"
+                id={`store-list-item-${st.id}`}
+                style={{
+                  '--accent': st.categories?.color || 'var(--color-primary)',
+                } as React.CSSProperties}
+              >
+                {/* Left category color bar */}
+                <div
+                  className="store-list-bar"
+                  style={{ background: st.categories?.color || 'var(--color-primary)' }}
+                />
+
+                {/* Logo */}
+                {st.logo_url ? (
+                  <img src={st.logo_url} alt={st.name} className="store-list-logo" />
+                ) : (
+                  <div
+                    className="store-list-logo-ph"
+                    style={{
+                      background: `${st.categories?.color || 'var(--color-surface2)'}20`,
+                    }}
+                  >
+                    <Store size={22} color={st.categories?.color || 'var(--color-muted)'} />
+                  </div>
+                )}
+
+                {/* Main info */}
+                <div className="store-list-body">
+                  <div className="store-list-title-row">
+                    <h2 className="store-list-name">{st.name}</h2>
+                    {st.categories && (
+                      <span
+                        className="store-list-badge"
+                        style={{
+                          background: `${st.categories.color}18`,
+                          color: st.categories.color || 'inherit',
+                          borderColor: `${st.categories.color}35`,
+                        }}
+                      >
+                        {st.categories.name}
+                      </span>
+                    )}
+                    {(st.phone || st.website) && (
+                      <Sparkles size={13} color="var(--color-warning)" style={{ flexShrink: 0 }} />
+                    )}
+                  </div>
+
+                  <p className="store-list-desc">
+                    {st.description || 'No description provided.'}
+                  </p>
+
+                  <div className="store-list-meta">
+                    <span className="store-meta-chip">
+                      <MapPin size={12} />
+                      Floor {st.floor || '1'}
+                      {st.exhibitions ? ` · ${st.exhibitions.title}` : ''}
+                    </span>
+                    <span className="store-meta-chip">
+                      <Clock size={12} />
+                      {st.opening_time ? st.opening_time.substring(0, 5) : '09:00'} –{' '}
+                      {st.closing_time ? st.closing_time.substring(0, 5) : '18:00'}
+                    </span>
+                    {openStatus !== null && (
+                      <span className={`store-open-badge ${openStatus ? 'open' : 'closed'}`}>
+                        {openStatus ? '● Open Now' : '● Closed'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="store-list-arrow">
+                  <ChevronRight size={18} />
+                </div>
+              </Link>
+            );
+          })
         ) : (
+          /* Grid view */
           filteredStores.map((st) => (
             <Link
               key={st.id}
               to={`/stores/${st.id}`}
-              className="glass"
-              style={{
-                display: 'flex',
-                padding: '1.25rem',
-                textDecoration: 'none',
-                color: 'inherit',
-                gap: '1rem',
-                alignItems: 'center',
-                transition: 'border-color 0.2s, transform 0.2s',
-                borderLeft: `5px solid ${st.categories?.color || 'var(--color-border)'}`,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--color-border)';
-                e.currentTarget.style.transform = 'none';
-              }}
+              className="store-grid-card"
+              id={`store-grid-item-${st.id}`}
             >
-              {st.logo_url ? (
-                <img
-                  src={st.logo_url}
-                  alt={st.name}
-                  style={{ width: 48, height: 48, borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '8px',
-                    background: 'var(--color-surface2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <Store size={22} color="var(--color-muted)" />
-                </div>
-              )}
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <h2 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0 }}>{st.name}</h2>
-                  {st.categories && (
-                    <span
-                      className="badge"
-                      style={{
-                        fontSize: '0.65rem',
-                        padding: '0.1rem 0.4rem',
-                        background: `${st.categories.color}15`,
-                        color: st.categories.color || 'var(--color-text)',
-                        borderColor: `${st.categories.color}35`,
-                      }}
-                    >
-                      {st.categories.name}
-                    </span>
-                  )}
-                </div>
-
-                <p
-                  style={{
-                    fontSize: '0.825rem',
-                    color: 'var(--color-muted)',
-                    marginTop: '0.25rem',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {st.description || 'No description provided.'}
-                </p>
-
-                <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                    <MapPin size={12} />
-                    Floor {st.floor || '1'}
-                    {st.exhibitions ? ` · ${st.exhibitions.title}` : ''}
+              <div
+                className="store-grid-top"
+                style={{
+                  background: `linear-gradient(135deg, ${st.categories?.color || 'var(--color-surface2)'}22 0%, transparent 70%)`,
+                }}
+              >
+                {st.logo_url ? (
+                  <img src={st.logo_url} alt={st.name} className="store-grid-logo" />
+                ) : (
+                  <div className="store-grid-logo-ph">
+                    <Store size={26} color={st.categories?.color || 'var(--color-muted)'} />
+                  </div>
+                )}
+                {(st.phone || st.website) && (
+                  <span className="store-grid-promo">
+                    <Star size={10} fill="currentColor" />
                   </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                    <Clock size={12} />
-                    {st.opening_time ? st.opening_time.substring(0, 5) : '09:00'} -{' '}
-                    {st.closing_time ? st.closing_time.substring(0, 5) : '18:00'}
-                  </span>
-                </div>
+                )}
               </div>
-
-              {/* Promo tag indicators */}
-              {(st.phone || st.website) && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
-                  <Star size={16} color="var(--color-warning)" fill="var(--color-warning)15" />
-                </div>
-              )}
+              <div className="store-grid-body">
+                <h3 className="store-grid-name">{st.name}</h3>
+                {st.categories && (
+                  <span
+                    className="store-grid-cat"
+                    style={{
+                      background: `${st.categories.color}15`,
+                      color: st.categories.color || 'var(--color-muted)',
+                    }}
+                  >
+                    {st.categories.name}
+                  </span>
+                )}
+                <span className="store-grid-floor">
+                  <MapPin size={11} /> Floor {st.floor || '1'}
+                </span>
+              </div>
             </Link>
           ))
         )}

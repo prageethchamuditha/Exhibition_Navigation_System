@@ -1,13 +1,43 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Calendar, MapPin, ArrowLeft, CalendarDays, Star } from 'lucide-react';
+import {
+  Search, Calendar, MapPin, ArrowLeft, CalendarDays, Star,
+  ChevronRight, Clock, TrendingUp, Sparkles,
+} from 'lucide-react';
 import { supabase, type Exhibition } from '../lib/supabase';
+
+type FilterStatus = 'all' | 'active' | 'upcoming' | 'ended';
+
+const STATUS_CONFIG: Record<FilterStatus, { label: string; color: string; bg: string }> = {
+  all: { label: 'All Events', color: 'var(--color-text)', bg: 'rgba(255,255,255,0.06)' },
+  active: { label: 'Active Now', color: 'var(--color-success)', bg: 'rgba(16,185,129,0.12)' },
+  upcoming: { label: 'Upcoming', color: 'var(--color-accent)', bg: 'rgba(34,211,238,0.12)' },
+  ended: { label: 'Ended', color: 'var(--color-muted)', bg: 'rgba(100,116,139,0.12)' },
+};
+
+function getExhibitionStatus(ex: Exhibition) {
+  const nowStr = new Date().toISOString().split('T')[0];
+  if (ex.start_date && ex.start_date > nowStr) return 'upcoming';
+  if (ex.end_date && ex.end_date < nowStr) return 'ended';
+  return 'active';
+}
+
+function formatDateRange(start?: string | null, end?: string | null) {
+  if (!start && !end) return null;
+  const fmt = (d: string) => {
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  if (start && end) return `${fmt(start)} → ${fmt(end)}`;
+  if (start) return `From ${fmt(start)}`;
+  return `Until ${fmt(end!)}`;
+}
 
 export function ExhibitionDirectoryPage() {
   const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'upcoming' | 'ended'>('all');
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
 
   useEffect(() => {
     fetchExhibitions();
@@ -20,7 +50,6 @@ export function ExhibitionDirectoryPage() {
         .from('exhibitions')
         .select('*')
         .order('start_date', { ascending: true });
-
       if (error) throw error;
       setExhibitions(data || []);
     } catch (err) {
@@ -30,178 +59,182 @@ export function ExhibitionDirectoryPage() {
     }
   }
 
-  // Filter logic based on search queries and status categories
   const filteredExhibitions = exhibitions.filter((ex) => {
     const matchesSearch =
       ex.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (ex.location && ex.location.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    const nowStr = new Date().toISOString().split('T')[0];
-    const isUpcoming = ex.start_date && ex.start_date > nowStr;
-    const isEnded = ex.end_date && ex.end_date < nowStr;
-    const isActive = ex.is_active && !isUpcoming && !isEnded;
-
-    if (filterStatus === 'active') return matchesSearch && isActive;
-    if (filterStatus === 'upcoming') return matchesSearch && isUpcoming;
-    if (filterStatus === 'ended') return matchesSearch && isEnded;
-
+    const status = getExhibitionStatus(ex);
+    if (filterStatus !== 'all') return matchesSearch && status === filterStatus;
     return matchesSearch;
   });
 
+  const countByStatus = (status: FilterStatus) => {
+    if (status === 'all') return exhibitions.length;
+    return exhibitions.filter((ex) => getExhibitionStatus(ex) === status).length;
+  };
+
   return (
-    <div className="profile-page" style={{ maxWidth: 800 }}>
-      {/* Back button */}
-      <Link
-        to="/"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.4rem',
-          color: 'var(--color-muted)',
-          textDecoration: 'none',
-          fontSize: '0.875rem',
-          marginBottom: '1.5rem',
-        }}
-      >
+    <div className="profile-page ex-dir-enhanced" style={{ maxWidth: 860 }}>
+
+      {/* ── Back Navigation ─────────────────────────────── */}
+      <Link to="/" className="dir-back-link" id="exhibitions-back-btn">
         <ArrowLeft size={16} />
         Back to Home
       </Link>
 
-      <header style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
-          Exhibitions & Events
-        </h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.95rem', marginTop: '0.25rem' }}>
-          Find active tradeshows, display galleries, and coordinate schedules
-        </p>
+      {/* ── Page Header ─────────────────────────────────── */}
+      <header className="dir-page-header">
+        <div className="dir-header-main">
+          <div className="dir-header-icon dir-header-icon-purple">
+            <CalendarDays size={22} color="#fff" />
+          </div>
+          <div>
+            <h1 className="dir-page-title">Exhibitions & Events</h1>
+            <p className="dir-page-desc">
+              Discover tradeshows, display galleries, and coordinate schedules
+            </p>
+          </div>
+        </div>
+        <div className="dir-count-badge">
+          {loading ? '…' : `${filteredExhibitions.length} Events`}
+        </div>
       </header>
 
-      {/* Toolbar / Search Panel */}
-      <section className="glass" style={{ padding: '1.25rem', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div className="search-wrap" style={{ width: '100%' }}>
+      {/* ── Search Panel ─────────────────────────────────── */}
+      <section className="glass dir-filter-panel" id="exhibitions-filter-panel">
+        <div className="search-wrap dir-search-wrap" style={{ width: '100%' }}>
           <Search size={18} className="search-icon" />
           <input
+            id="exhibitions-search-input"
             type="text"
-            placeholder="Search exhibitions by name or hall location..."
+            placeholder="Search by event name or hall location…"
             className="search-input"
-            style={{ width: '100%', paddingLeft: '2.6rem' }}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 
-        {/* Filter Status buttons */}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {(['all', 'active', 'upcoming', 'ended'] as const).map((status) => (
-            <button
-              key={status}
-              className={`btn btn-sm ${filterStatus === status ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setFilterStatus(status)}
-              style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', textTransform: 'capitalize' }}
-            >
-              {status}
-            </button>
-          ))}
+        {/* Status filter tabs */}
+        <div className="ex-status-tabs">
+          {(['all', 'active', 'upcoming', 'ended'] as FilterStatus[]).map((status) => {
+            const cfg = STATUS_CONFIG[status];
+            const count = countByStatus(status);
+            return (
+              <button
+                key={status}
+                id={`ex-filter-${status}`}
+                className={`ex-status-tab ${filterStatus === status ? 'active' : ''}`}
+                onClick={() => setFilterStatus(status)}
+                style={{
+                  '--tab-color': cfg.color,
+                  '--tab-bg': cfg.bg,
+                } as React.CSSProperties}
+              >
+                {cfg.label}
+                <span className="ex-tab-count">{count}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
-      {/* Directory Grid */}
-      <section style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
+      {/* ── Exhibition Cards ─────────────────────────────── */}
+      <section className="ex-dir-list" aria-label="Exhibition listings">
         {loading ? (
-          Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="glass skeleton" style={{ height: '140px', width: '100%' }} />
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="glass skeleton ex-card-skeleton" />
           ))
         ) : filteredExhibitions.length === 0 ? (
-          <div className="glass" style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--color-muted)' }}>
-            <CalendarDays size={36} style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
-            <p style={{ fontSize: '0.95rem' }}>No exhibitions found matching your search filters.</p>
+          <div className="dir-empty-state">
+            <CalendarDays size={40} style={{ opacity: 0.3 }} />
+            <h3>No Events Found</h3>
+            <p>Try adjusting your search or status filter.</p>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setSearchQuery(''); setFilterStatus('all'); }}
+            >
+              Clear Filters
+            </button>
           </div>
         ) : (
           filteredExhibitions.map((ex) => {
-            const nowStr = new Date().toISOString().split('T')[0];
-            const isUpcoming = ex.start_date && ex.start_date > nowStr;
-            const isEnded = ex.end_date && ex.end_date < nowStr;
-            let statusBadge = <span className="badge badge-success">Active Now</span>;
-
-            if (isUpcoming) {
-              statusBadge = <span className="badge badge-info">Upcoming</span>;
-            } else if (isEnded) {
-              statusBadge = <span className="badge badge-muted">Ended</span>;
-            }
+            const status = getExhibitionStatus(ex);
+            const cfg = STATUS_CONFIG[status];
+            const dateRange = formatDateRange(ex.start_date, ex.end_date);
 
             return (
               <Link
                 key={ex.id}
                 to={`/exhibitions/${ex.id}`}
-                className="glass"
-                style={{
-                  display: 'flex',
-                  padding: '1.25rem',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  gap: '1.25rem',
-                  transition: 'border-color 0.2s, transform 0.2s',
-                  alignItems: 'stretch',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-primary)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--color-border)';
-                  e.currentTarget.style.transform = 'none';
-                }}
+                className={`ex-dir-card ex-card-${status}`}
+                id={`ex-card-${ex.id}`}
               >
-                {/* Visual Thumbnail */}
-                {ex.image_url ? (
-                  <img
-                    src={ex.image_url}
-                    alt={ex.title}
-                    style={{ width: '100px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: '100px',
-                      borderRadius: '8px',
-                      background: 'var(--color-surface2)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <CalendarDays size={32} color="var(--color-muted)" />
-                  </div>
-                )}
+                {/* Left visual thumbnail */}
+                <div className="ex-card-thumb">
+                  {ex.image_url ? (
+                    <img src={ex.image_url} alt={ex.title} className="ex-card-thumb-img" />
+                  ) : (
+                    <div className="ex-card-thumb-ph">
+                      <CalendarDays size={28} color="rgba(255,255,255,0.35)" />
+                    </div>
+                  )}
 
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>{ex.title}</h2>
-                      {statusBadge}
+                  {/* Overlaid status pill */}
+                  <span
+                    className="ex-card-status-pill"
+                    style={{ background: cfg.bg, color: cfg.color, borderColor: `${cfg.color}30` }}
+                  >
+                    {status === 'active' && <span className="ex-status-pulse" />}
+                    {cfg.label}
+                  </span>
+                </div>
+
+                {/* Content */}
+                <div className="ex-card-content">
+                  <div className="ex-card-title-row">
+                    <h2 className="ex-card-title">{ex.title}</h2>
+                    <div className="ex-card-badges">
                       {ex.is_featured && (
-                        <span className="badge badge-warning" style={{ fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                        <span className="ex-featured-badge">
                           <Star size={10} fill="currentColor" />
                           Featured
                         </span>
                       )}
                     </div>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)', marginTop: '0.4rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {ex.description || 'Join this custom navigation exhibition event.'}
-                    </p>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                      <MapPin size={13} />
+                  <p className="ex-card-desc">
+                    {ex.description || 'Join this exhibition event and explore the latest innovations.'}
+                  </p>
+
+                  <div className="ex-card-meta">
+                    <span className="ex-meta-chip">
+                      <MapPin size={12} />
                       {ex.location || 'Exhibition Area'}
                     </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                      <Calendar size={13} />
-                      {ex.start_date || '?'} to {ex.end_date || '?'}
-                    </span>
+                    {dateRange && (
+                      <span className="ex-meta-chip">
+                        <Calendar size={12} />
+                        {dateRange}
+                      </span>
+                    )}
+                    {status === 'active' && (
+                      <span className="ex-live-chip">
+                        <TrendingUp size={11} />
+                        Live Now
+                      </span>
+                    )}
+                    {status === 'upcoming' && ex.start_date && (
+                      <span className="ex-meta-chip ex-upcoming-chip">
+                        <Clock size={11} />
+                        Starts {formatDateRange(ex.start_date, null)}
+                      </span>
+                    )}
                   </div>
+                </div>
+
+                <div className="ex-card-arrow">
+                  <ChevronRight size={20} />
                 </div>
               </Link>
             );
