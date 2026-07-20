@@ -6,10 +6,6 @@ Interactive indoor/outdoor map routing, directory search, realtime alerts, and a
 
 ---
 
-
-
----
-
 ## 📋 Remaining / Future Work
 1.  **Phase 8 Testing**: Expand unit tests for shortest-path calculation, execute simulated concurrent visitor load testing.
 2.  **Future Enhancements**: QR code check-ins, indoor Bluetooth beacons, PWA offline caching.
@@ -31,9 +27,4 @@ Upload assets using Wrangler:
 ```bash
 npx wrangler pages deploy dist --project-name exhibition-navigation-system --branch main --commit-dirty=true
 ```
-
-### 3. Environment Variables
-Add environment variables under **Settings > Environment Variables**:
-*   `VITE_SUPABASE_URL`
-*   `VITE_SUPABASE_ANON_KEY`
 
