@@ -1,7 +1,17 @@
 import { type NavigationNode, type NavigationEdge } from '../lib/supabase';
 
 /**
- * Haversine formula to compute distance in meters between two coordinates.
+ * Equirectangular approximation for short-range distance (< 1 km).
+ *
+ * Unlike Haversine (which assumes a spherical Earth and is designed for
+ * global-scale distances), equirectangular projects coordinates onto a flat
+ * plane using the mid-latitude as a correction factor. This gives far higher
+ * floating-point precision when coordinate deltas are tiny (e.g. 0.00005°),
+ * which is exactly the case in indoor/campus navigation where nodes may be
+ * only 3–20 metres apart.
+ *
+ * At distances below 1 km the error vs. the true geodesic is < 0.01%,
+ * while Haversine accumulates noticeable rounding error at sub-metre deltas.
  */
 export function getDistance(
   lat1: number,
@@ -10,17 +20,19 @@ export function getDistance(
   lon2: number
 ): number {
   const R = 6371e3; // Earth radius in meters
+
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const φMid = (φ1 + φ2) / 2; // mid-latitude for longitude correction
+
+  const Δφ = φ2 - φ1;
   const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  // Correct longitude difference for latitude (distances shrink near poles)
+  const x = Δλ * Math.cos(φMid);
+  const y = Δφ;
 
-  return R * c; // Distance in meters
+  return R * Math.sqrt(x * x + y * y); // Distance in meters
 }
 
 /**
@@ -156,7 +168,8 @@ export function calculateShortestPath(
 }
 
 /**
- * Calculate compass heading (bearing) direction between two coordinate points
+ * Calculate compass heading (bearing) direction between two coordinate points.
+ * Returns a 16-point compass direction for finer indoor turn guidance.
  */
 export function getHeading(lat1: number, lon1: number, lat2: number, lon2: number): string {
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -169,15 +182,23 @@ export function getHeading(lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
 
   const bearing = (Math.atan2(y, x) * 180) / Math.PI;
-  const normalizedBearing = (bearing + 360) % 360;
+  const b = (bearing + 360) % 360; // Normalize to [0, 360)
 
-  if (normalizedBearing >= 337.5 || normalizedBearing < 22.5) return 'North';
-  if (normalizedBearing >= 22.5 && normalizedBearing < 67.5) return 'North-East';
-  if (normalizedBearing >= 67.5 && normalizedBearing < 112.5) return 'East';
-  if (normalizedBearing >= 112.5 && normalizedBearing < 157.5) return 'South-East';
-  if (normalizedBearing >= 157.5 && normalizedBearing < 202.5) return 'South';
-  if (normalizedBearing >= 202.5 && normalizedBearing < 247.5) return 'South-West';
-  if (normalizedBearing >= 247.5 && normalizedBearing < 292.5) return 'West';
-  return 'North-West';
+  // 16-point compass: each sector is 22.5° wide
+  if (b >= 348.75 || b < 11.25)   return 'North';
+  if (b >= 11.25  && b < 33.75)   return 'North-Northeast';
+  if (b >= 33.75  && b < 56.25)   return 'Northeast';
+  if (b >= 56.25  && b < 78.75)   return 'East-Northeast';
+  if (b >= 78.75  && b < 101.25)  return 'East';
+  if (b >= 101.25 && b < 123.75)  return 'East-Southeast';
+  if (b >= 123.75 && b < 146.25)  return 'Southeast';
+  if (b >= 146.25 && b < 168.75)  return 'South-Southeast';
+  if (b >= 168.75 && b < 191.25)  return 'South';
+  if (b >= 191.25 && b < 213.75)  return 'South-Southwest';
+  if (b >= 213.75 && b < 236.25)  return 'Southwest';
+  if (b >= 236.25 && b < 258.75)  return 'West-Southwest';
+  if (b >= 258.75 && b < 281.25)  return 'West';
+  if (b >= 281.25 && b < 303.75)  return 'West-Northwest';
+  if (b >= 303.75 && b < 326.25)  return 'Northwest';
+  return 'North-Northwest';
 }
-

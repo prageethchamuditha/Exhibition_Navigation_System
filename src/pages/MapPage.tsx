@@ -54,6 +54,7 @@ export function MapPage() {
   // Geolocation tracking state
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // metres
   const [, setGpsError] = useState<string | null>(null);
   const [mockMode, setMockMode] = useState(false);
 
@@ -193,6 +194,7 @@ export function MapPage() {
       (position) => {
         setUserLat(position.coords.latitude);
         setUserLng(position.coords.longitude);
+        setGpsAccuracy(position.coords.accuracy ?? null);
         setGpsError(null);
         setMockMode(false);
       },
@@ -868,7 +870,34 @@ export function MapPage() {
                     </h3>
                     <p style={{ fontSize: '0.8rem', color: 'var(--color-muted)', margin: 0 }}>
                       <span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>{totalDistance} m</span>
-                      {' · '}Est: {Math.ceil(totalDistance / 1.2 / 60)} min
+                      {' · '}Est: {totalDistance / 1.0 < 60 ? '< 1 min' : `${Math.ceil(totalDistance / 1.0 / 60)} min`}
+                      {/* GPS accuracy indicator — only shown when real GPS is active */}
+                      {!mockMode && gpsAccuracy !== null && (
+                        <span style={{
+                          marginLeft: '0.5rem',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          padding: '0.05rem 0.4rem',
+                          borderRadius: '4px',
+                          color: gpsAccuracy <= 5
+                            ? '#22c55e'
+                            : gpsAccuracy <= 15
+                              ? '#eab308'
+                              : '#f97316',
+                          background: gpsAccuracy <= 5
+                            ? 'rgba(34,197,94,0.1)'
+                            : gpsAccuracy <= 15
+                              ? 'rgba(234,179,8,0.1)'
+                              : 'rgba(249,115,22,0.1)',
+                          border: `1px solid ${gpsAccuracy <= 5
+                            ? 'rgba(34,197,94,0.25)'
+                            : gpsAccuracy <= 15
+                              ? 'rgba(234,179,8,0.25)'
+                              : 'rgba(249,115,22,0.25)'}`,
+                        }}>
+                          📍 ±{Math.round(gpsAccuracy)} m
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

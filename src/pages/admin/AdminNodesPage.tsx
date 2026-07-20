@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Plus, Edit2, Trash2, Search, Check, Navigation2, Network, Link2 } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Plus, Edit2, Trash2, Search, Check, Navigation2, Network, Link2, RefreshCw } from 'lucide-react';
 import { supabase, type NavigationNode, type NavigationEdge, type Store, type NodeType } from '../../lib/supabase';
 import { AdminTable } from '../../components/admin/AdminTable';
 import { AdminModal } from '../../components/admin/AdminModal';
+import { getDistance } from '../../utils/dijkstra';
 
 export function AdminNodesPage() {
   const [nodes, setNodes] = useState<NavigationNode[]>([]);
@@ -20,9 +21,26 @@ export function AdminNodesPage() {
   const [isEdgeModalOpen, setIsEdgeModalOpen] = useState(false);
   const [isDeleteEdgeModalOpen, setIsDeleteEdgeModalOpen] = useState(false);
   const [currentEdge, setCurrentEdge] = useState<Partial<NavigationEdge> | null>(null);
+  // Tracks whether the current edge distance was auto-computed (vs manually typed)
+  const [isDistanceAutoCalc, setIsDistanceAutoCalc] = useState(false);
 
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  /**
+   * Compute the straight-line distance between two nodes using the equirectangular
+   * formula (same one used by navigation) and round to 2 decimal places.
+   */
+  const autoCalcDistance = useCallback(
+    (fromId: string, toId: string): number | null => {
+      const from = nodes.find((n) => n.id === fromId);
+      const to = nodes.find((n) => n.id === toId);
+      if (!from || !to) return null;
+      const dist = getDistance(from.latitude, from.longitude, to.latitude, to.longitude);
+      return Math.round(dist * 100) / 100; // round to cm precision
+    },
+    [nodes]
+  );
 
   useEffect(() => {
     loadAllData();
@@ -140,12 +158,16 @@ export function AdminNodesPage() {
 
   // --- EDGE CRUD FUNCTIONS ---
   const handleOpenAddEdge = () => {
+    const fromId = nodes[0]?.id || '';
+    const toId = nodes[1]?.id || '';
+    const autoDist = nodes.length >= 2 ? autoCalcDistance(fromId, toId) : null;
     setCurrentEdge({
-      from_node_id: nodes[0]?.id || '',
-      to_node_id: nodes[1]?.id || '',
-      distance: 5.0,
+      from_node_id: fromId,
+      to_node_id: toId,
+      distance: autoDist ?? 5.0,
       is_bidirectional: true,
     });
+    setIsDistanceAutoCalc(autoDist !== null);
     setFormError('');
     setIsEdgeModalOpen(true);
   };
@@ -522,7 +544,17 @@ export function AdminNodesPage() {
                 id="edge-from"
                 className="form-select"
                 value={currentEdge.from_node_id || ''}
-                onChange={(e) => setCurrentEdge({ ...currentEdge, from_node_id: e.target.value })}
+                onChange={(e) => {
+                  const fromId = e.target.value;
+                  const toId = currentEdge.to_node_id || '';
+                  const autoDist = toId ? autoCalcDistance(fromId, toId) : null;
+                  setCurrentEdge({
+                    ...currentEdge,
+                    from_node_id: fromId,
+                    distance: autoDist ?? currentEdge.distance,
+                  });
+                  setIsDistanceAutoCalc(autoDist !== null);
+                }}
               >
                 {nodes.map((n) => (
                   <option key={n.id} value={n.id}>
@@ -538,7 +570,17 @@ export function AdminNodesPage() {
                 id="edge-to"
                 className="form-select"
                 value={currentEdge.to_node_id || ''}
-                onChange={(e) => setCurrentEdge({ ...currentEdge, to_node_id: e.target.value })}
+                onChange={(e) => {
+                  const toId = e.target.value;
+                  const fromId = currentEdge.from_node_id || '';
+                  const autoDist = fromId ? autoCalcDistance(fromId, toId) : null;
+                  setCurrentEdge({
+                    ...currentEdge,
+                    to_node_id: toId,
+                    distance: autoDist ?? currentEdge.distance,
+                  });
+                  setIsDistanceAutoCalc(autoDist !== null);
+                }}
               >
                 {nodes.map((n) => (
                   <option key={n.id} value={n.id}>
@@ -549,16 +591,65 @@ export function AdminNodesPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label" htmlFor="edge-dist">Distance (Weight in meters)</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <label className="form-label" htmlFor="edge-dist" style={{ margin: 0 }}>Distance (meters)</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  {isDistanceAutoCalc && (
+                    <span style={{
+                      fontSize: '0.65rem', fontWeight: 700,
+                      color: 'var(--color-success, #22c55e)',
+                      background: 'rgba(34,197,94,0.1)',
+                      border: '1px solid rgba(34,197,94,0.25)',
+                      borderRadius: '4px', padding: '0.1rem 0.4rem',
+                      letterSpacing: '0.03em',
+                    }}>
+                      📐 Auto-calculated
+                    </span>
+                  )}
+                  {!isDistanceAutoCalc && currentEdge.from_node_id && currentEdge.to_node_id && (
+                    <button
+                      type="button"
+                      title="Recalculate from node coordinates"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.25rem',
+                        fontSize: '0.7rem', fontWeight: 600,
+                        background: 'rgba(99,102,241,0.1)',
+                        border: '1px solid rgba(99,102,241,0.25)',
+                        borderRadius: '4px', padding: '0.15rem 0.5rem',
+                        color: 'var(--color-primary-h)', cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        const dist = autoCalcDistance(
+                          currentEdge.from_node_id!,
+                          currentEdge.to_node_id!
+                        );
+                        if (dist !== null) {
+                          setCurrentEdge({ ...currentEdge, distance: dist });
+                          setIsDistanceAutoCalc(true);
+                        }
+                      }}
+                    >
+                      <RefreshCw size={10} /> Recalc
+                    </button>
+                  )}
+                </div>
+              </div>
               <input
                 id="edge-dist"
                 type="number"
-                step="any"
+                step="0.01"
+                min="0.01"
                 className="form-input"
-                value={currentEdge.distance || ''}
-                onChange={(e) => setCurrentEdge({ ...currentEdge, distance: Number(e.target.value) })}
-                placeholder="e.g. 5.5"
+                value={currentEdge.distance ?? ''}
+                onChange={(e) => {
+                  setCurrentEdge({ ...currentEdge, distance: Number(e.target.value) });
+                  setIsDistanceAutoCalc(false); // manual entry clears the badge
+                }}
+                placeholder="e.g. 5.50"
               />
+              <p style={{ fontSize: '0.72rem', color: 'var(--color-muted)', marginTop: '0.3rem', lineHeight: 1.4 }}>
+                Auto-filled from node coordinates. Override if the real walkable path curves around obstacles.
+              </p>
             </div>
 
             <div style={{ display: 'flex', gap: '2rem', marginTop: '0.5rem' }}>
