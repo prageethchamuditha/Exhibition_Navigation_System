@@ -1,32 +1,12 @@
 # 🗺️ Custom Exhibition Navigation & Live Tracking System
 
+**Live Demo:** [exhibition-navigation-system.pages.dev](https://exhibition-navigation-system.pages.dev/)
+
 Interactive indoor/outdoor map routing, directory search, realtime alerts, and administrative features built using React, Vite, Leaflet, and Supabase.
 
 ---
 
-## ✅ Completed Tasks & Features
 
-### 👤 1. Authentication & Profiles
-*   **Sign-in & Sign-up**: Full authentication flows backed by Supabase Auth.
-*   **Visitor Mode**: Anonymous browsing support.
-*   **Role-Based Access Control**: Visitor vs. Registered User vs. Admin permissions.
-
-### 🧭 2. Realtime Navigation
-*   **Custom Map Interface**: Leaflet.js rendering customized dark-matter layers.
-*   **Shortest Path Routing**: Client-side Dijkstra / A* algorithm calculating node paths.
-*   **GPS Tracker integration**: High-accuracy live geolocation tracking with a grace fallback mock position manager.
-
-### 📱 3. Mobile Optimization
-*   **Responsive Layouts**: Multi-breakpoint viewport configurations supporting small screen sizes (down to 320px).
-*   **Draggable Pull-up Bottom Sheet**: Interactive Google Maps-style route information sheet.
-*   **Fixed Overlaps**: Compact toolbar and safe-area notch supports (`viewport-fit=cover`).
-
-### ⚡ 4. Performance Optimizations
-*   **React Code Splitting**: All pages use React `lazy` and `Suspense` loaders to load on-demand.
-*   **Vite Bundle Chunking**: Split vendor dependencies (React, Leaflet, Supabase) into independent cached assets.
-
-### 🔔 5. Realtime Alerts
-*   **Live Announcements**: Supabase PostgreSQL event broadcasting showing popup alerts and emergency broadcasts.
 
 ---
 
