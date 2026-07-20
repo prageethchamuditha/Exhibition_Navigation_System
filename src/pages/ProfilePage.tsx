@@ -279,14 +279,6 @@ export function ProfilePage() {
                 : '—'}
             </span>
           </div>
-          {profile?.role === 'admin' && (
-            <div className="info-row">
-              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)', fontWeight: 600 }}>Admin Console</span>
-              <Link to="/admin/dashboard" className="btn btn-sm btn-primary" id="profile-admin-link">
-                Go to Admin Panel
-              </Link>
-            </div>
-          )}
         </div>
 
         {/* Sign out */}

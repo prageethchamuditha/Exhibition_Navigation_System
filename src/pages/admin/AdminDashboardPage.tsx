@@ -4,7 +4,8 @@ import { supabase } from '../../lib/supabase';
 import { StatCard } from '../../components/admin/StatCard';
 
 interface DashboardStats {
-  visitorsCount: number;
+  registeredCount: number;
+  anonymousCount: number;
   exhibitionsCount: number;
   storesCount: number;
   announcementsCount: number;
@@ -20,7 +21,8 @@ interface ActivityItem {
 
 export function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats>({
-    visitorsCount: 0,
+    registeredCount: 0,
+    anonymousCount: 0,
     exhibitionsCount: 0,
     storesCount: 0,
     announcementsCount: 0,
@@ -33,27 +35,37 @@ export function AdminDashboardPage() {
       try {
         setLoading(true);
         
-        // 1. Fetch counts
-        const [visitorsRes, exhibitionsRes, storesRes, announcementsRes] = await Promise.all([
-          supabase.from('profiles').select('id', { count: 'exact', head: true }),
+        // 1. Run anonymous user cleanup (older than 1 hour)
+        try {
+          await supabase.rpc('delete_expired_anonymous_profiles');
+        } catch (rpcErr) {
+          console.warn('Postgres function delete_expired_anonymous_profiles not installed yet. Make sure you run database/cleanup_anonymous_profiles.sql:', rpcErr);
+        }
+
+        // 2. Fetch counts separately
+        const [registeredRes, anonymousRes, exhibitionsRes, storesRes, announcementsRes] = await Promise.all([
+          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('is_anonymous', false),
+          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('is_anonymous', true),
           supabase.from('exhibitions').select('id', { count: 'exact', head: true }),
           supabase.from('stores').select('id', { count: 'exact', head: true }),
           supabase.from('announcements').select('id', { count: 'exact', head: true }),
         ]);
 
-        const visitorsCount = visitorsRes.count ?? 0;
+        const registeredCount = registeredRes.count ?? 0;
+        const anonymousCount = anonymousRes.count ?? 0;
         const exhibitionsCount = exhibitionsRes.count ?? 0;
         const storesCount = storesRes.count ?? 0;
         const announcementsCount = announcementsRes.count ?? 0;
 
         setStats({
-          visitorsCount,
+          registeredCount,
+          anonymousCount,
           exhibitionsCount,
           storesCount,
           announcementsCount,
         });
 
-        // 2. Fetch recent activity (e.g. latest active announcements & latest visitor profiles updates)
+        // 3. Fetch recent activity (e.g. latest active announcements & latest visitor profiles updates)
         const [recentAnnouncements, recentProfiles] = await Promise.all([
           supabase
             .from('announcements')
@@ -117,10 +129,16 @@ export function AdminDashboardPage() {
       {/* Stats Grid */}
       <section className="stat-cards-grid">
         <StatCard
-          label="Registered Profiles"
-          value={stats.visitorsCount}
+          label="Registered Accounts"
+          value={stats.registeredCount}
           loading={loading}
           icon={<Users size={20} color="var(--color-primary-h)" />}
+        />
+        <StatCard
+          label="Guest Sessions"
+          value={stats.anonymousCount}
+          loading={loading}
+          icon={<Users size={20} color="var(--color-accent)" style={{ opacity: 0.8 }} />}
         />
         <StatCard
           label="Exhibitions"

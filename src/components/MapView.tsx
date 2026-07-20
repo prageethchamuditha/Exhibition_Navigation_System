@@ -45,6 +45,9 @@ export function MapView({
   const meshLayerRef = useRef<L.FeatureGroup | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  // Tracks the last destination node ID whose bounds we fitted, so we only
+  // call fitBounds once when a new route is first drawn — never on GPS updates.
+  const lastFittedDestRef = useRef<string | null>(null);
 
   // 1. Initialize Map
   useEffect(() => {
@@ -79,7 +82,8 @@ export function MapView({
       meshLayerRef.current = null;
       tileLayerRef.current = null;
     };
-  }, [latitude, longitude, zoom]);
+  }, []); // Run once on mount only — do NOT include lat/lng/zoom here;
+           // changing those should never destroy and recreate the whole map.
 
   // 2. Tile Layer Theme Manager
   useEffect(() => {
@@ -105,13 +109,16 @@ export function MapView({
     tileLayer.bringToBack();
   }, [map, theme]);
 
-  // 3. Update view center if coords change
+  // 3. Update view center when the parent explicitly re-centers (no active route)
+  // Only flyTo when there is no active navigation — this handles the "Recenter"
+  // button press without interfering with the user's manual pan/zoom.
   useEffect(() => {
-    // Only center map if there is no active route navigation
     if (map && route.length === 0) {
       map.setView([latitude, longitude], zoom);
     }
-  }, [map, latitude, longitude, zoom, route.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, latitude, longitude]); // intentionally omit route.length / zoom
+                                  // to avoid re-centering on every GPS tick
 
   // 4. Render Store Markers
   useEffect(() => {
@@ -251,7 +258,11 @@ export function MapView({
     // Clear existing route drawings
     routeLayer.clearLayers();
 
-    if (!route || route.length < 2) return;
+    if (!route || route.length < 2) {
+      // Route was cleared — reset the fitted-destination tracker
+      lastFittedDestRef.current = null;
+      return;
+    }
 
     const coordinates = route.map((node) => [node.latitude, node.longitude] as [number, number]);
 
@@ -265,8 +276,15 @@ export function MapView({
 
     routeLayer.addLayer(polyline);
 
-    // Fit map bounds to show the entire route
-    map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
+    // Only fit bounds when the DESTINATION changes (i.e. a new route is chosen).
+    // The last node in the route represents the destination.
+    const destId = route[route.length - 1].id;
+    if (destId !== lastFittedDestRef.current) {
+      lastFittedDestRef.current = destId;
+      map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
+    }
+    // If destId is the same (GPS just updated our start position), do nothing —
+    // the user's current pan/zoom is preserved.
   }, [map, route]);
 
   // 7. Draw Graph Mesh (Admin only)

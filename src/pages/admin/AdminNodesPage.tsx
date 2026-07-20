@@ -4,6 +4,8 @@ import { supabase, type NavigationNode, type NavigationEdge, type Store, type No
 import { AdminTable } from '../../components/admin/AdminTable';
 import { AdminModal } from '../../components/admin/AdminModal';
 import { getDistance } from '../../utils/dijkstra';
+import { FormMapPicker } from '../../components/admin/FormMapPicker';
+import { DrawPathMapPicker } from '../../components/admin/DrawPathMapPicker';
 
 export function AdminNodesPage() {
   const [nodes, setNodes] = useState<NavigationNode[]>([]);
@@ -20,12 +22,23 @@ export function AdminNodesPage() {
 
   const [isEdgeModalOpen, setIsEdgeModalOpen] = useState(false);
   const [isDeleteEdgeModalOpen, setIsDeleteEdgeModalOpen] = useState(false);
-  const [currentEdge, setCurrentEdge] = useState<Partial<NavigationEdge> | null>(null);
+  const [currentEdge, setCurrentEdge] = useState<any | null>(null);
   // Tracks whether the current edge distance was auto-computed (vs manually typed)
   const [isDistanceAutoCalc, setIsDistanceAutoCalc] = useState(false);
 
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Draw Path states
+  const [isDrawPathModalOpen, setIsDrawPathModalOpen] = useState(false);
+  const [drawPathStartNodeId, setDrawPathStartNodeId] = useState('');
+  const [drawPathEndNodeId, setDrawPathEndNodeId] = useState('');
+  const [newStartNodeName, setNewStartNodeName] = useState('');
+  const [newEndNodeName, setNewEndNodeName] = useState('');
+  const [drawPathPoints, setDrawPathPoints] = useState<Array<{ lat: number; lng: number }>>([]);
+  const [drawPathBidirectional, setDrawPathBidirectional] = useState(true);
+  const [drawPathBaseName, setDrawPathBaseName] = useState('Path Point');
+  const [drawPathFloor, setDrawPathFloor] = useState('1');
 
   /**
    * Compute the straight-line distance between two nodes using the equirectangular
@@ -69,6 +82,47 @@ export function AdminNodesPage() {
     }
   }
 
+  async function cleanOrphanedPathNodes() {
+    try {
+      // Find all nodes of type 'path'
+      const { data: pathNodes, error: nodesErr } = await supabase
+        .from('navigation_nodes')
+        .select('id')
+        .eq('type', 'path');
+
+      if (nodesErr || !pathNodes || pathNodes.length === 0) return;
+
+      // Find all active edges
+      const { data: activeEdges, error: edgesErr } = await supabase
+        .from('navigation_edges')
+        .select('from_node_id, to_node_id');
+
+      if (edgesErr || !activeEdges) return;
+
+      // Collect all node IDs referenced by edges
+      const referencedNodeIds = new Set<string>();
+      activeEdges.forEach(edge => {
+        referencedNodeIds.add(edge.from_node_id);
+        referencedNodeIds.add(edge.to_node_id);
+      });
+
+      // Identify orphaned path nodes (those not referenced by any edge)
+      const orphanedNodeIds = pathNodes
+        .map(node => node.id)
+        .filter(id => !referencedNodeIds.has(id));
+
+      if (orphanedNodeIds.length > 0) {
+        // Delete these orphaned path nodes
+        await supabase
+          .from('navigation_nodes')
+          .delete()
+          .in('id', orphanedNodeIds);
+      }
+    } catch (err) {
+      console.error('Error cleaning up orphaned path nodes:', err);
+    }
+  }
+
   // --- NODE CRUD FUNCTIONS ---
   const handleOpenAddNode = () => {
     setCurrentNode({
@@ -78,7 +132,9 @@ export function AdminNodesPage() {
       floor: '1',
       type: 'path',
       store_id: '',
-    });
+      // Add custom field to track initial edge link
+      connect_to_node_id: '',
+    } as any);
     setFormError('');
     setIsNodeModalOpen(true);
   };
@@ -122,10 +178,43 @@ export function AdminNodesPage() {
           .eq('id', currentNode.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase
+        // Insert new node and select its generated details to calculate distance
+        const { data: insertedNode, error: insertError } = await supabase
           .from('navigation_nodes')
-          .insert(payload);
-        if (error) throw error;
+          .insert(payload)
+          .select('id, latitude, longitude')
+          .single();
+        
+        if (insertError) throw insertError;
+
+        // If the user requested to connect this node directly to an existing one
+        const linkNodeId = (currentNode as any).connect_to_node_id;
+        if (insertedNode && linkNodeId) {
+          const targetLinkNode = nodes.find((n) => n.id === linkNodeId);
+          if (targetLinkNode) {
+            const calculatedDist = getDistance(
+              insertedNode.latitude,
+              insertedNode.longitude,
+              targetLinkNode.latitude,
+              targetLinkNode.longitude
+            );
+            const roundedDist = Math.round(calculatedDist * 100) / 100;
+
+            // Automatically create bidirectional edge link
+            const { error: edgeError } = await supabase
+              .from('navigation_edges')
+              .insert({
+                from_node_id: insertedNode.id,
+                to_node_id: targetLinkNode.id,
+                distance: roundedDist,
+                is_bidirectional: true,
+              });
+
+            if (edgeError) {
+              console.warn('Node was successfully created but automatic edge link failed:', edgeError.message);
+            }
+          }
+        }
       }
 
       setIsNodeModalOpen(false);
@@ -147,10 +236,195 @@ export function AdminNodesPage() {
         .delete()
         .eq('id', currentNode.id);
       if (error) throw error;
+
+      // Clean up any path waypoints orphaned by this node deletion
+      await cleanOrphanedPathNodes();
+
       setIsDeleteNodeModalOpen(false);
       loadAllData();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // --- DRAW PATH FUNCTIONS ---
+  const handleOpenDrawPath = () => {
+    // Make default as none selected
+    setDrawPathStartNodeId('');
+    setDrawPathEndNodeId('');
+    setNewStartNodeName('');
+    setNewEndNodeName('');
+    setDrawPathPoints([]);
+    setDrawPathBidirectional(true);
+    setDrawPathBaseName('Path Point');
+    setDrawPathFloor('1');
+    setFormError('');
+    setIsDrawPathModalOpen(true);
+  };
+
+  const handleDrawPathSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!drawPathStartNodeId || !drawPathEndNodeId) {
+      setFormError('Start and End nodes are required');
+      return;
+    }
+    if (drawPathStartNodeId === 'new' && !newStartNodeName.trim()) {
+      setFormError('Please enter a name for the new Start Node');
+      return;
+    }
+    if (drawPathEndNodeId === 'new' && !newEndNodeName.trim()) {
+      setFormError('Please enter a name for the new End Node');
+      return;
+    }
+
+    // Validation of clicked points count
+    const minPointsRequired = (drawPathStartNodeId === 'new' ? 1 : 0) + (drawPathEndNodeId === 'new' ? 1 : 0);
+    if (drawPathPoints.length < Math.max(1, minPointsRequired)) {
+      if (drawPathStartNodeId === 'new' && drawPathEndNodeId === 'new') {
+        setFormError('Please click at least 2 points on the map to define the Start and End node coordinates');
+      } else if (drawPathStartNodeId === 'new' || drawPathEndNodeId === 'new') {
+        setFormError('Please click at least 1 point on the map to define the new node coordinates');
+      } else {
+        setFormError('Please click at least 1 intermediate waypoint on the map');
+      }
+      return;
+    }
+
+    if (drawPathStartNodeId !== 'new' && drawPathEndNodeId !== 'new' && drawPathStartNodeId === drawPathEndNodeId) {
+      setFormError('Start and End nodes cannot be the same');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setFormError('');
+
+      let startNode: NavigationNode | null = null;
+      let endNode: NavigationNode | null = null;
+      let startPoint: { lat: number; lng: number } | null = null;
+      let endPoint: { lat: number; lng: number } | null = null;
+      let waypointPoints: Array<{ lat: number; lng: number }> = [];
+
+      // Determine Start coordinates or load existing node
+      if (drawPathStartNodeId === 'new') {
+        startPoint = drawPathPoints[0];
+      } else {
+        const found = nodes.find((n) => n.id === drawPathStartNodeId);
+        if (!found) throw new Error('Start node not found');
+        startNode = found;
+      }
+
+      // Determine End coordinates or load existing node
+      if (drawPathEndNodeId === 'new') {
+        const lastIdx = drawPathPoints.length - 1;
+        endPoint = drawPathPoints[lastIdx];
+      } else {
+        const found = nodes.find((n) => n.id === drawPathEndNodeId);
+        if (!found) throw new Error('End node not found');
+        endNode = found;
+      }
+
+      // Slice out intermediate waypoints
+      const sIdx = drawPathStartNodeId === 'new' ? 1 : 0;
+      const eIdx = drawPathEndNodeId === 'new' ? drawPathPoints.length - 1 : drawPathPoints.length;
+      if (sIdx < eIdx) {
+        waypointPoints = drawPathPoints.slice(sIdx, eIdx);
+      }
+
+      // 1. Insert new Start Node if necessary
+      if (drawPathStartNodeId === 'new' && startPoint) {
+        const { data: newSNode, error: nodeErr } = await supabase
+          .from('navigation_nodes')
+          .insert({
+            label: newStartNodeName.trim(),
+            latitude: startPoint.lat,
+            longitude: startPoint.lng,
+            floor: drawPathFloor || null,
+            type: 'poi' as NodeType,
+            store_id: null,
+          })
+          .select('*')
+          .single();
+
+        if (nodeErr) throw nodeErr;
+        if (!newSNode) throw new Error('Failed to create new Start Node');
+        startNode = newSNode as NavigationNode;
+      }
+
+      // 2. Insert new End Node if necessary
+      if (drawPathEndNodeId === 'new' && endPoint) {
+        const { data: newENode, error: nodeErr } = await supabase
+          .from('navigation_nodes')
+          .insert({
+            label: newEndNodeName.trim(),
+            latitude: endPoint.lat,
+            longitude: endPoint.lng,
+            floor: drawPathFloor || null,
+            type: 'poi' as NodeType,
+            store_id: null,
+          })
+          .select('*')
+          .single();
+
+        if (nodeErr) throw nodeErr;
+        if (!newENode) throw new Error('Failed to create new End Node');
+        endNode = newENode as NavigationNode;
+      }
+
+      // 3. Insert intermediate path points
+      const createdWaypoints: NavigationNode[] = [];
+      for (let i = 0; i < waypointPoints.length; i++) {
+        const pt = waypointPoints[i];
+        const payload = {
+          label: `${drawPathBaseName} ${i + 1}`,
+          latitude: pt.lat,
+          longitude: pt.lng,
+          floor: drawPathFloor || null,
+          type: 'path' as NodeType,
+          store_id: null,
+        };
+
+        const { data: newNode, error: nodeErr } = await supabase
+          .from('navigation_nodes')
+          .insert(payload)
+          .select('*')
+          .single();
+
+        if (nodeErr) throw nodeErr;
+        if (newNode) createdWaypoints.push(newNode as NavigationNode);
+      }
+
+      // 4. Build sequential chain: Start Node ➔ Waypoints ➔ End Node
+      const fullChain = [startNode!, ...createdWaypoints, endNode!];
+
+      // 5. Insert connecting edges
+      const edgesToInsert = [];
+      for (let i = 0; i < fullChain.length - 1; i++) {
+        const from = fullChain[i];
+        const to = fullChain[i + 1];
+        const calculatedDist = getDistance(from.latitude, from.longitude, to.latitude, to.longitude);
+        const roundedDist = Math.round(calculatedDist * 100) / 100;
+
+        edgesToInsert.push({
+          from_node_id: from.id,
+          to_node_id: to.id,
+          distance: roundedDist,
+          is_bidirectional: drawPathBidirectional,
+        });
+      }
+
+      const { error: edgesErr } = await supabase
+        .from('navigation_edges')
+        .insert(edgesToInsert);
+
+      if (edgesErr) throw edgesErr;
+
+      setIsDrawPathModalOpen(false);
+      loadAllData();
+    } catch (err: unknown) {
+      setFormError(err instanceof Error ? err.message : 'Failed to save drawn path');
     } finally {
       setSubmitting(false);
     }
@@ -215,15 +489,21 @@ export function AdminNodesPage() {
   };
 
   const handleEdgeDeleteConfirm = async () => {
-    if (!currentEdge?.id) return;
+    if (!currentEdge) return;
 
     try {
       setSubmitting(true);
+      const idsToDelete = currentEdge.edge_ids || [currentEdge.id];
+      
       const { error } = await supabase
         .from('navigation_edges')
         .delete()
-        .eq('id', currentEdge.id);
+        .in('id', idsToDelete);
       if (error) throw error;
+
+      // Clean up any path waypoints orphaned by this edge deletion
+      await cleanOrphanedPathNodes();
+
       setIsDeleteEdgeModalOpen(false);
       loadAllData();
     } catch (err: unknown) {
@@ -234,8 +514,10 @@ export function AdminNodesPage() {
   };
 
   const filteredNodes = nodes.filter((n) =>
-    n.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    n.type.toLowerCase().includes(searchQuery.toLowerCase())
+    n.type !== 'path' && (
+      n.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      n.type.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   const nodeColumns = [
@@ -300,7 +582,7 @@ export function AdminNodesPage() {
     {
       key: 'connection',
       label: 'Connection',
-      render: (row: NavigationEdge) => (
+      render: (row: any) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Network size={14} color="var(--color-primary-h)" />
           <span style={{ fontWeight: 600 }}>{row.from_node?.label || 'Unknown'}</span>
@@ -314,13 +596,13 @@ export function AdminNodesPage() {
     {
       key: 'distance',
       label: 'Distance (Weight)',
-      render: (row: NavigationEdge) => <span>{row.distance} m</span>,
+      render: (row: any) => <span>{row.distance} m</span>,
     },
     {
       key: 'actions',
       label: 'Actions',
       width: '80px',
-      render: (row: NavigationEdge) => (
+      render: (row: any) => (
         <button
           className="btn btn-danger btn-sm btn-icon"
           onClick={() => handleOpenDeleteEdge(row)}
@@ -332,6 +614,8 @@ export function AdminNodesPage() {
     },
   ];
 
+  const groupedEdges = getGroupedEdges(nodes, edges);
+
   return (
     <main className="admin-page">
       <header className="admin-page-header">
@@ -341,6 +625,10 @@ export function AdminNodesPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn btn-ghost" onClick={handleOpenDrawPath} style={{ border: '1px dashed var(--color-accent)', color: 'var(--color-accent)' }}>
+            <Network size={16} />
+            Draw Path
+          </button>
           <button className="btn btn-ghost" onClick={handleOpenAddEdge} disabled={nodes.length < 2}>
             <Link2 size={16} />
             Connect Nodes
@@ -394,7 +682,7 @@ export function AdminNodesPage() {
         <section className="data-table-wrap">
           <AdminTable
             columns={edgeColumns}
-            rows={edges}
+            rows={groupedEdges}
             loading={loading}
             emptyMessage="No path connections established between nodes."
           />
@@ -466,7 +754,7 @@ export function AdminNodesPage() {
                   step="any"
                   className="form-input"
                   required
-                  value={currentNode.latitude || ''}
+                  value={currentNode.latitude ?? ''}
                   onChange={(e) => setCurrentNode({ ...currentNode, latitude: Number(e.target.value) })}
                   placeholder="e.g. 6.92712"
                 />
@@ -479,12 +767,42 @@ export function AdminNodesPage() {
                   step="any"
                   className="form-input"
                   required
-                  value={currentNode.longitude || ''}
+                  value={currentNode.longitude ?? ''}
                   onChange={(e) => setCurrentNode({ ...currentNode, longitude: Number(e.target.value) })}
                   placeholder="e.g. 79.86121"
                 />
               </div>
             </div>
+
+            <div className="form-group">
+              <label className="form-label">Position Picker</label>
+              <div style={{ height: '180px', width: '100%' }}>
+                <FormMapPicker
+                  latitude={currentNode.latitude || 0}
+                  longitude={currentNode.longitude || 0}
+                  onChange={(lat, lng) => setCurrentNode({ ...currentNode, latitude: lat, longitude: lng })}
+                />
+              </div>
+            </div>
+
+            {!currentNode.id && (
+              <div className="form-group">
+                <label className="form-label" htmlFor="node-connect-to">Connect to Existing Node (Optional)</label>
+                <select
+                  id="node-connect-to"
+                  className="form-select"
+                  value={(currentNode as any).connect_to_node_id || ''}
+                  onChange={(e) => setCurrentNode({ ...currentNode, connect_to_node_id: e.target.value } as any)}
+                >
+                  <option value="">Do not connect (isolated node)</option>
+                  {nodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label} (Floor {n.floor || '1'} · {n.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="form-group">
               <label className="form-label" htmlFor="node-store">Link to Store (Optional)</label>
@@ -759,6 +1077,299 @@ export function AdminNodesPage() {
           </div>
         </AdminModal>
       )}
+
+      {/* DRAW PATH MODAL */}
+      {isDrawPathModalOpen && (
+        <AdminModal
+          title="Draw Navigation Path Waypoints"
+          onClose={() => setIsDrawPathModalOpen(false)}
+          maxWidth={850}
+        >
+          <form onSubmit={handleDrawPathSubmit} className="admin-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', maxHeight: '75vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
+            {/* Left Column: Form Fields */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <p style={{ fontSize: '0.82rem', color: 'var(--color-muted)', lineHeight: 1.4 }}>
+                Choose two main nodes, then click sequentially on the map to define the custom walkable path.
+              </p>
+
+              {formError && (
+                <div className="alert alert-error" style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}>
+                  {formError}
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="draw-start-node">First Point (Start Node) *</label>
+                <select
+                  id="draw-start-node"
+                  className="form-select"
+                  value={drawPathStartNodeId}
+                  onChange={(e) => {
+                    setDrawPathStartNodeId(e.target.value);
+                    if (e.target.value !== 'new') setNewStartNodeName('');
+                  }}
+                  required
+                >
+                  <option value="">-- Select Start Node --</option>
+                  <option value="new" style={{ fontWeight: 'bold', color: 'var(--color-accent)' }}>+ Create New Node (Click on Map)</option>
+                  {nodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label} (Floor {n.floor || '1'} · {n.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {drawPathStartNodeId === 'new' && (
+                <div className="form-group animate-fade-in">
+                  <label className="form-label" htmlFor="new-start-node-name">New Start Node Name *</label>
+                  <input
+                    id="new-start-node-name"
+                    type="text"
+                    className="form-input"
+                    value={newStartNodeName}
+                    onChange={(e) => setNewStartNodeName(e.target.value)}
+                    placeholder="e.g. Entrance Gate X"
+                    required
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="draw-end-node">End Point (Destination Node) *</label>
+                <select
+                  id="draw-end-node"
+                  className="form-select"
+                  value={drawPathEndNodeId}
+                  onChange={(e) => {
+                    setDrawPathEndNodeId(e.target.value);
+                    if (e.target.value !== 'new') setNewEndNodeName('');
+                  }}
+                  required
+                >
+                  <option value="">-- Select End Node --</option>
+                  <option value="new" style={{ fontWeight: 'bold', color: 'var(--color-accent)' }}>+ Create New Node (Click on Map)</option>
+                  {nodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label} (Floor {n.floor || '1'} · {n.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {drawPathEndNodeId === 'new' && (
+                <div className="form-group animate-fade-in">
+                  <label className="form-label" htmlFor="new-end-node-name">New End Node Name *</label>
+                  <input
+                    id="new-end-node-name"
+                    type="text"
+                    className="form-input"
+                    value={newEndNodeName}
+                    onChange={(e) => setNewEndNodeName(e.target.value)}
+                    placeholder="e.g. Hall B Entrance"
+                    required
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="draw-base-name">Waypoints Base Label</label>
+                <input
+                  id="draw-base-name"
+                  type="text"
+                  className="form-input"
+                  value={drawPathBaseName}
+                  onChange={(e) => setDrawPathBaseName(e.target.value)}
+                  placeholder="e.g. Hallway A Path"
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="draw-floor">Floor</label>
+                  <input
+                    id="draw-floor"
+                    type="text"
+                    className="form-input"
+                    value={drawPathFloor}
+                    onChange={(e) => setDrawPathFloor(e.target.value)}
+                    placeholder="e.g. 1"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="draw-direction">Direction</label>
+                  <select
+                    id="draw-direction"
+                    className="form-select"
+                    value={drawPathBidirectional ? 'bi' : 'uni'}
+                    onChange={(e) => setDrawPathBidirectional(e.target.value === 'bi')}
+                  >
+                    <option value="bi">Bidirectional (Two-way)</option>
+                    <option value="uni">One-directional (One-way)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setDrawPathPoints(drawPathPoints.slice(0, -1))}
+                  className="btn btn-ghost btn-sm"
+                  disabled={drawPathPoints.length === 0}
+                  style={{ flex: 1 }}
+                >
+                  Undo Point
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDrawPathPoints([])}
+                  className="btn btn-danger btn-sm"
+                  disabled={drawPathPoints.length === 0}
+                  style={{ flex: 1 }}
+                >
+                  Clear Points
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setIsDrawPathModalOpen(false)}
+                  disabled={submitting}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={submitting || drawPathPoints.length === 0}
+                  style={{ flex: 1 }}
+                >
+                  {submitting ? <span className="spinner" /> : <Check size={16} />}
+                  Save Path
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Click Map Picker */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minHeight: '380px' }}>
+              <label className="form-label">Click Points sequentially on Map to build path:</label>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <DrawPathMapPicker
+                  nodes={nodes}
+                  edges={edges}
+                  stores={stores}
+                  startNodeId={drawPathStartNodeId}
+                  endNodeId={drawPathEndNodeId}
+                  points={drawPathPoints}
+                  setPoints={setDrawPathPoints}
+                />
+              </div>
+            </div>
+          </form>
+        </AdminModal>
+      )}
     </main>
   );
+}
+
+interface GroupedEdge {
+  id: string;
+  from_node: NavigationNode;
+  to_node: NavigationNode;
+  distance: number;
+  is_bidirectional: boolean;
+  edge_ids: string[];
+}
+
+function getGroupedEdges(nodes: NavigationNode[], edges: NavigationEdge[]): GroupedEdge[] {
+  const adj: { [nodeId: string]: Array<{ toId: string; edge: NavigationEdge }> } = {};
+  
+  nodes.forEach((n) => {
+    adj[n.id] = [];
+  });
+
+  edges.forEach((edge) => {
+    if (adj[edge.from_node_id] && adj[edge.to_node_id]) {
+      adj[edge.from_node_id].push({ toId: edge.to_node_id, edge });
+      adj[edge.to_node_id].push({ toId: edge.from_node_id, edge });
+    }
+  });
+
+  const visitedEdges = new Set<string>();
+  const grouped: GroupedEdge[] = [];
+
+  const landmarks = nodes.filter((n) => n.type !== 'path');
+
+  landmarks.forEach((startNode) => {
+    const neighbors = adj[startNode.id] || [];
+    
+    neighbors.forEach(({ toId, edge }) => {
+      if (visitedEdges.has(edge.id)) return;
+
+      const edgeIds = [edge.id];
+      let totalDistance = edge.distance;
+      let isBidirectional = edge.is_bidirectional;
+      
+      let prevId = startNode.id;
+      let currId = toId;
+      let currNode = nodes.find((n) => n.id === currId);
+
+      while (currNode && currNode.type === 'path') {
+        const currNeighbors = adj[currId] || [];
+        const next = currNeighbors.find((n) => n.toId !== prevId);
+        if (!next) {
+          break;
+        }
+        
+        visitedEdges.add(next.edge.id);
+        edgeIds.push(next.edge.id);
+        totalDistance += next.edge.distance;
+        if (!next.edge.is_bidirectional) {
+          isBidirectional = false;
+        }
+
+        prevId = currId;
+        currId = next.toId;
+        currNode = nodes.find((n) => n.id === currId);
+      }
+
+      visitedEdges.add(edge.id);
+
+      if (currNode && currId !== startNode.id) {
+        grouped.push({
+          id: edge.id,
+          from_node: startNode,
+          to_node: currNode,
+          distance: Math.round(totalDistance * 100) / 100,
+          is_bidirectional: isBidirectional,
+          edge_ids: edgeIds,
+        });
+      }
+    });
+  });
+
+  // Handle remaining path nodes that never connect to landmarks (fallback)
+  edges.forEach((edge) => {
+    if (!visitedEdges.has(edge.id)) {
+      const fromNode = nodes.find((n) => n.id === edge.from_node_id);
+      const toNode = nodes.find((n) => n.id === edge.to_node_id);
+      if (fromNode && toNode) {
+        grouped.push({
+          id: edge.id,
+          from_node: fromNode,
+          to_node: toNode,
+          distance: edge.distance,
+          is_bidirectional: edge.is_bidirectional,
+          edge_ids: [edge.id],
+        });
+      }
+    }
+  });
+
+  return grouped;
 }

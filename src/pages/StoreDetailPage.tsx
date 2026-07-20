@@ -32,6 +32,18 @@ export function StoreDetailPage() {
     }
   }, [id]);
 
+  // Auto slideshow effect: advances the gallery image every 4 seconds.
+  // The timer resets whenever the image index changes (manually or automatically).
+  useEffect(() => {
+    if (images.length <= 1) return;
+
+    const timer = setTimeout(() => {
+      setCurrentImageIndex((prev) => (prev + 1) % images.length);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [currentImageIndex, images.length]);
+
   async function loadStoreDetails(storeId: string) {
     try {
       setLoading(true);

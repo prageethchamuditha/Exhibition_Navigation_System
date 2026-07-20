@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import {
   Route,
   X,
   Search,
   Navigation,
-  LogOut,
   CalendarDays,
   Store,
   ArrowLeft,
@@ -24,8 +23,7 @@ import { calculateShortestPath, findClosestNode, getDistance, getHeading } from 
 import { logAnalyticsEvent } from '../lib/analytics';
 
 export function MapPage() {
-  const { profile, signOut } = useAuth();
-  const navigate = useNavigate();
+  const { profile } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -55,8 +53,13 @@ export function MapPage() {
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // metres
+  const [snappedToNode, setSnappedToNode] = useState<string | null>(null); // label of entrance used as fallback start
   const [, setGpsError] = useState<string | null>(null);
   const [mockMode, setMockMode] = useState(false);
+
+  // When GPS accuracy is worse than this threshold (metres), we snap the
+  // route start to the nearest entrance node instead of trusting raw GPS.
+  const GPS_ACCURACY_THRESHOLD = 20;
 
   // Selected mock starting node (if GPS is disabled)
   const [mockStartNodeId, setMockStartNodeId] = useState('');
@@ -119,6 +122,9 @@ export function MapPage() {
   // Leaflet map center anchor
   const [mapCenterLat, setMapCenterLat] = useState(6.9271);
   const [mapCenterLng, setMapCenterLng] = useState(79.8612);
+  // Tracks whether the map has already been centered on a real GPS fix,
+  // so the node/store fallback doesn't overwrite it.
+  const hasGPSCenteredRef = useRef(false);
 
   // Geolocation watch listener ID
   const geoWatchIdRef = useRef<number | null>(null);
@@ -167,13 +173,17 @@ export function MapPage() {
         setMockStartNodeId(navigationNodes[0].id);
       }
 
-      // Detect default map center based on nodes or active stores coordinates
-      if (navigationNodes.length > 0) {
-        setMapCenterLat(navigationNodes[0].latitude);
-        setMapCenterLng(navigationNodes[0].longitude);
-      } else if (activeStores.length > 0 && activeStores[0].latitude) {
-        setMapCenterLat(activeStores[0].latitude);
-        setMapCenterLng(activeStores[0].longitude!);
+      // Detect default map center based on nodes or active stores coordinates.
+      // Only apply if GPS hasn't already provided a real position — we don't
+      // want to overwrite a GPS center with the first node/store in the list.
+      if (!hasGPSCenteredRef.current) {
+        if (navigationNodes.length > 0) {
+          setMapCenterLat(navigationNodes[0].latitude);
+          setMapCenterLng(navigationNodes[0].longitude);
+        } else if (activeStores.length > 0 && activeStores[0].latitude) {
+          setMapCenterLat(activeStores[0].latitude);
+          setMapCenterLng(activeStores[0].longitude!);
+        }
       }
     } catch (err) {
       console.error('Error fetching navigation data:', err);
@@ -192,11 +202,20 @@ export function MapPage() {
 
     geoWatchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setUserLat(position.coords.latitude);
-        setUserLng(position.coords.longitude);
-        setGpsAccuracy(position.coords.accuracy ?? null);
+        const { latitude: lat, longitude: lng, accuracy } = position.coords;
+        setUserLat(lat);
+        setUserLng(lng);
+        setGpsAccuracy(accuracy ?? null);
         setGpsError(null);
         setMockMode(false);
+
+        // On the first real GPS fix, center the map on the user and mark it
+        // so the node/store fallback in loadNavigationResources never overrides it.
+        if (!hasGPSCenteredRef.current) {
+          hasGPSCenteredRef.current = true;
+          setMapCenterLat(lat);
+          setMapCenterLng(lng);
+        }
       },
       (error) => {
         console.warn('GPS location tracking error:', error.message);
@@ -297,19 +316,48 @@ export function MapPage() {
     // 3. Try to calculate network Dijkstra path first (if nodes exist)
     let path: NavigationNode[] = [];
     if (nodes.length > 0) {
-      let startNode = nodes.find((n) => {
-        if (userLat !== null && userLng !== null && !mockMode) {
-          return n.id === findClosestNode(userLat, userLng, nodes)?.id;
-        }
-        return n.id === mockStartNodeId;
+      // Find IDs of nodes that are actually connected by edges
+      const connectedNodeIds = new Set<string>();
+      edges.forEach((edge) => {
+        connectedNodeIds.add(edge.from_node_id);
+        connectedNodeIds.add(edge.to_node_id);
       });
+      // Filter list of nodes to only those that have connections (or are entrances)
+      const connectedNodes = nodes.filter((n) => connectedNodeIds.has(n.id) || n.type === 'entrance');
+      const searchNodesList = connectedNodes.length > 0 ? connectedNodes : nodes;
+
+      let startNode: NavigationNode | undefined;
+      const entranceNodes = nodes.filter((n) => n.type === 'entrance');
+
+      if (userLat !== null && userLng !== null && !mockMode) {
+        const poorGps = gpsAccuracy !== null && gpsAccuracy > GPS_ACCURACY_THRESHOLD;
+
+        if (poorGps && entranceNodes.length > 0) {
+          // GPS is too imprecise — snap to the nearest known entrance node
+          // instead of using the raw (potentially wrong) GPS coordinate.
+          const nearestEntrance = findClosestNode(userLat, userLng, entranceNodes);
+          startNode = nearestEntrance ?? undefined;
+          setSnappedToNode(startNode?.label ?? null);
+        } else {
+          // GPS is accurate enough — use the closest CONNECTED node to real position.
+          const closest = findClosestNode(userLat, userLng, searchNodesList);
+          startNode = closest ?? undefined;
+          setSnappedToNode(null);
+        }
+      } else {
+        // Mock mode — use the manually selected start node.
+        startNode = nodes.find((n) => n.id === mockStartNodeId);
+        setSnappedToNode(null);
+      }
+
+      // Last-resort fallback if nothing matched above
       if (!startNode) {
-        const entrances = nodes.filter((n) => n.type === 'entrance');
-        startNode = entrances.length > 0 ? entrances[0] : nodes[0];
+        startNode = entranceNodes.length > 0 ? entranceNodes[0] : nodes[0];
+        setSnappedToNode(startNode?.label ?? null);
       }
 
       let endNode = selectedDestinationStoreId
-        ? (nodes.find((n) => n.store_id === selectedDestinationStoreId) || findClosestNode(targetLat, targetLng, nodes))
+        ? (nodes.find((n) => n.store_id === selectedDestinationStoreId) || findClosestNode(targetLat, targetLng, searchNodesList))
         : nodes.find((n) => n.id === selectedDestinationNodeId);
 
       if (startNode && endNode) {
@@ -317,36 +365,55 @@ export function MapPage() {
       }
     }
 
-    // 4. Fallback to direct routing if network is empty or target is disconnected
-    if (path.length === 0) {
-      const startVirtualNode: NavigationNode = {
-        id: 'start-virtual',
-        label: startLabel,
-        latitude: startLat,
-        longitude: startLng,
-        floor: null,
-        type: 'poi',
-        store_id: null,
-        created_at: new Date().toISOString()
-      };
-      const endVirtualNode: NavigationNode = {
-        id: 'end-virtual',
-        label: targetLabel,
-        latitude: targetLat,
-        longitude: targetLng,
-        floor: null,
-        type: 'store',
-        store_id: null,
-        created_at: new Date().toISOString()
-      };
-      
+    // Create virtual start node representing actual user position
+    const userStartVirtualNode: NavigationNode = {
+      id: 'actual-start-virtual',
+      label: startLabel,
+      latitude: startLat,
+      longitude: startLng,
+      floor: path[0]?.floor || null,
+      type: 'poi',
+      store_id: null,
+      created_at: new Date().toISOString()
+    };
+
+    // Create virtual end node representing actual target position
+    const destEndVirtualNode: NavigationNode = {
+      id: 'actual-end-virtual',
+      label: targetLabel,
+      latitude: targetLat,
+      longitude: targetLng,
+      floor: path[path.length - 1]?.floor || null,
+      type: 'store',
+      store_id: null,
+      created_at: new Date().toISOString()
+    };
+
+    // 4. Connect actual locations with Dijkstra path if found
+    let finalRoute = [...path];
+    if (path.length > 0) {
+      const startDist = getDistance(startLat, startLng, path[0].latitude, path[0].longitude);
+      const endDist = getDistance(path[path.length - 1].latitude, path[path.length - 1].longitude, targetLat, targetLng);
+
+      // Prepend user location if it is not already identical to the nearest node
+      if (startDist > 2) {
+        finalRoute.unshift(userStartVirtualNode);
+      }
+      // Append destination location if it is not already identical to the final node
+      if (endDist > 2) {
+        finalRoute.push(destEndVirtualNode);
+      }
+    }
+
+    // 5. Fallback to direct routing if network is empty, target is disconnected, or start/end are same
+    if (finalRoute.length === 0) {
       const lineDist = getDistance(startLat, startLng, targetLat, targetLng);
       const heading = getHeading(startLat, startLng, targetLat, targetLng);
 
-      setCalculatedRoute([startVirtualNode, endVirtualNode]);
+      setCalculatedRoute([userStartVirtualNode, destEndVirtualNode]);
       setTotalDistance(Math.round(lineDist));
       setGuideSteps([
-        `Start routing from ${startLabel}`,
+        `Start from ${startLabel}`,
         `Head ${heading} for ${Math.round(lineDist)} meters directly to ${targetLabel} (Direct Path)`,
         `Arrive at ${targetLabel}`
       ]);
@@ -354,31 +421,37 @@ export function MapPage() {
       return;
     }
 
-    // 5. Build network route guidance steps
-    setCalculatedRoute(path);
+    // 6. Build network route guidance steps
+    setCalculatedRoute(finalRoute);
     setNavigationActive(true);
 
-    if (path.length > 1) {
+    if (finalRoute.length > 1) {
       let distanceMeters = 0;
       const steps: string[] = [];
 
-      for (let i = 0; i < path.length - 1; i++) {
-        const from = path[i];
-        const to = path[i + 1];
+      for (let i = 0; i < finalRoute.length - 1; i++) {
+        const from = finalRoute[i];
+        const to = finalRoute[i + 1];
         const segmentDist = getDistance(from.latitude, from.longitude, to.latitude, to.longitude);
         distanceMeters += segmentDist;
 
         if (i === 0) {
-          steps.push(`Start tracking from ${from.label}`);
+          steps.push(`Start from ${from.label}`);
         }
         
         let directionStr = 'Continue straight';
         if (to.floor && from.floor && to.floor !== from.floor) {
           directionStr = `Take escalator/lift to Floor ${to.floor}`;
+        } else if (to.id === 'actual-end-virtual') {
+          directionStr = `Walk to destination ${to.label}`;
         } else if (to.type === 'poi') {
           directionStr = `Walk towards ${to.label}`;
         } else if (to.type === 'store') {
           directionStr = `Proceed to ${to.label}`;
+        } else if (to.type === 'entrance') {
+          directionStr = `Head to ${to.label}`;
+        } else {
+          directionStr = `Walk towards ${to.label}`;
         }
 
         steps.push(`${directionStr} for ${Math.round(segmentDist)} meters`);
@@ -387,20 +460,12 @@ export function MapPage() {
       steps.push(`Arrive at ${targetLabel}`);
       setTotalDistance(Math.round(distanceMeters));
       setGuideSteps(steps);
-    } else if (path.length === 1) {
+    } else if (finalRoute.length === 1) {
       setTotalDistance(0);
       setGuideSteps([`You are already at ${targetLabel}.`]);
     }
   }
 
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      navigate('/login');
-    } catch (err) {
-      console.error('Error signing out:', err);
-    }
-  };
 
   const handleRecenterLocation = () => {
     if (!mockMode && userLat !== null && userLng !== null) {
@@ -500,9 +565,6 @@ export function MapPage() {
                 Admin
               </Link>
             )}
-            <button className="btn btn-ghost btn-sm btn-icon" onClick={handleSignOut} title="Sign Out">
-              <LogOut size={14} />
-            </button>
           </div>
 
           {/* Mobile-only: bell icon inline */}
@@ -899,6 +961,20 @@ export function MapPage() {
                         </span>
                       )}
                     </p>
+                    {/* Entrance-snap notice — shown when poor GPS caused fallback */}
+                    {snappedToNode && !mockMode && (
+                      <p style={{
+                        fontSize: '0.72rem',
+                        color: '#f97316',
+                        margin: '0.2rem 0 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                      }}>
+                        <span style={{ opacity: 0.8 }}>⚠️</span>
+                        Weak GPS — routing from <strong style={{ color: '#fb923c' }}>{snappedToNode}</strong>
+                      </p>
+                    )}
                   </div>
                 </div>
 

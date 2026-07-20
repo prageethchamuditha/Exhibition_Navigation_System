@@ -15,6 +15,7 @@ import {
   Clock,
   TrendingUp,
   ChevronRight,
+  Shield,
 } from 'lucide-react';
 import { supabase, type Exhibition, type Store as StoreType } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -139,6 +140,12 @@ export function HomePage() {
               <User size={14} />
               Profile
             </Link>
+            {profile?.role === 'admin' && (
+              <Link to="/admin/dashboard" className="btn btn-ghost btn-sm home-action-btn" style={{ border: '1px dashed var(--color-warning)', color: 'var(--color-warning)' }} id="home-admin-btn">
+                <Shield size={14} />
+                Admin
+              </Link>
+            )}
             <button className="btn btn-danger btn-sm" onClick={handleSignOut} id="home-signout-btn">
               <LogOut size={14} />
               Out

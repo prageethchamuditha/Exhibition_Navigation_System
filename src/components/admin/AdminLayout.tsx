@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, Link } from 'react-router-dom';
 import {
   MapPin,
   LayoutDashboard,
@@ -14,6 +14,7 @@ import {
   X,
   ChevronLeft,
   BarChart3,
+  Home,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -162,6 +163,10 @@ export function AdminLayout({ children }: { children: ReactNode }) {
             >
               {mobileOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
+            <Link to="/" className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.65rem', border: '1px solid var(--color-border)', fontSize: '0.8rem' }} id="admin-home-btn">
+              <Home size={14} />
+              Return Home
+            </Link>
             <style>{`
               @media (max-width: 768px) {
                 #admin-mobile-menu-btn { display: flex !important; }

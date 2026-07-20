@@ -21,6 +21,7 @@ import {
 import { AdminTable } from '../../components/admin/AdminTable';
 import { AdminModal } from '../../components/admin/AdminModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { FormMapPicker } from '../../components/admin/FormMapPicker';
 
 export function AdminStoresPage() {
   const { user } = useAuth();
@@ -680,7 +681,7 @@ export function AdminStoresPage() {
                     type="number"
                     step="any"
                     className="form-input"
-                    value={currentStore.latitude || ''}
+                    value={currentStore.latitude ?? ''}
                     onChange={(e) => setCurrentStore({ ...currentStore, latitude: Number(e.target.value) })}
                     placeholder="e.g. 6.9271"
                   />
@@ -692,9 +693,20 @@ export function AdminStoresPage() {
                     type="number"
                     step="any"
                     className="form-input"
-                    value={currentStore.longitude || ''}
+                    value={currentStore.longitude ?? ''}
                     onChange={(e) => setCurrentStore({ ...currentStore, longitude: Number(e.target.value) })}
                     placeholder="e.g. 79.8612"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Position Picker</label>
+                <div style={{ height: '180px', width: '100%' }}>
+                  <FormMapPicker
+                    latitude={currentStore.latitude || 0}
+                    longitude={currentStore.longitude || 0}
+                    onChange={(lat, lng) => setCurrentStore({ ...currentStore, latitude: lat, longitude: lng })}
                   />
                 </div>
               </div>
