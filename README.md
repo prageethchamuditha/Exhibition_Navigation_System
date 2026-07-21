@@ -5,8 +5,6 @@
 
 Interactive indoor/outdoor map routing, directory search, realtime alerts, and administrative features built using React, Vite, Leaflet, and Supabase.
 
-
-
 ---
 
 ## 📋 Remaining / Future Work
@@ -30,9 +28,4 @@ Upload assets using Wrangler:
 ```bash
 npx wrangler pages deploy dist --project-name exhibition-navigation-system --branch main --commit-dirty=true
 ```
-
-### 3. Environment Variables
-Add environment variables under **Settings > Environment Variables**:
-*   `VITE_SUPABASE_URL`
-*   `VITE_SUPABASE_ANON_KEY`
 
