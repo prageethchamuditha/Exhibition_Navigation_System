@@ -60,20 +60,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Bootstrap auth state on mount
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }: { data: { session: import('@supabase/supabase-js').Session | null } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      setLoading(false);
-    });
+    let active = true;
+
+    async function bootstrap() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!active) return;
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          await fetchProfile(session.user.id);
+        }
+      } catch (err) {
+        console.error('Error bootstrapping auth:', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    bootstrap();
 
     // Listen for auth state changes (login / logout / token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, session: Session | null) => {
+      async (_event: AuthChangeEvent, session: Session | null) => {
+        if (!active) return;
+        setLoading(true);
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          fetchProfile(session.user.id);
+          await fetchProfile(session.user.id);
         } else {
           setProfile(null);
         }
@@ -81,7 +98,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, [fetchProfile]);
 
   // ── Auth Actions ──────────────────────────────────────────────────────────
@@ -94,23 +114,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         data: { name, phone: phone ?? null, is_anonymous: false },
       },
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('Sign up error details:', error);
+      const message = error.message && error.message !== '{}' 
+        ? error.message 
+        : 'Unexpected signup failure. If you configured SMTP, check your SMTP credentials or logs.';
+      throw new Error(message);
+    }
   };
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('Sign in error details:', error);
+      const message = error.message && error.message !== '{}' 
+        ? error.message 
+        : 'Sign in failed. Please check your credentials and try again.';
+      throw new Error(message);
+    }
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(error.message || 'Failed to sign out');
     setProfile(null);
   };
 
   const signInAnonymously = async () => {
     const { error } = await supabase.auth.signInAnonymously();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(error.message || 'Failed to sign in anonymously');
   };
 
   const updateProfile = async (data: Partial<Pick<Profile, 'name' | 'phone'>>) => {

@@ -45,7 +45,7 @@ export function AdminDashboardPage() {
         // 2. Fetch counts separately
         const [registeredRes, anonymousRes, exhibitionsRes, storesRes, announcementsRes] = await Promise.all([
           supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('is_anonymous', false),
-          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('is_anonymous', true),
+          supabase.from('visitor_locations').select('id', { count: 'exact', head: true }).is('user_id', null),
           supabase.from('exhibitions').select('id', { count: 'exact', head: true }),
           supabase.from('stores').select('id', { count: 'exact', head: true }),
           supabase.from('announcements').select('id', { count: 'exact', head: true }),
@@ -65,8 +65,8 @@ export function AdminDashboardPage() {
           announcementsCount,
         });
 
-        // 3. Fetch recent activity (e.g. latest active announcements & latest visitor profiles updates)
-        const [recentAnnouncements, recentProfiles] = await Promise.all([
+        // 3. Fetch recent activity (e.g. latest active announcements, latest visitor registrations, and latest anonymous guest sessions)
+        const [recentAnnouncements, recentProfiles, recentVisitorLocations] = await Promise.all([
           supabase
             .from('announcements')
             .select('id, title, created_at')
@@ -74,39 +74,77 @@ export function AdminDashboardPage() {
             .limit(5),
           supabase
             .from('profiles')
-            .select('id, name, created_at, is_anonymous')
+            .select('id, name, created_at')
+            .eq('is_anonymous', false)
             .order('created_at', { ascending: false })
+            .limit(5),
+          supabase
+            .from('visitor_locations')
+            .select('id, session_id, updated_at')
+            .is('user_id', null)
+            .order('updated_at', { ascending: false })
             .limit(5),
         ]);
 
-        const items: ActivityItem[] = [];
+        interface RawActivityItem {
+          id: string;
+          type: 'visitor_location' | 'announcement';
+          title: string;
+          subtitle: string;
+          timestamp: number;
+        }
+
+        const rawItems: RawActivityItem[] = [];
 
         if (recentAnnouncements.data) {
           recentAnnouncements.data.forEach((ann) => {
-            items.push({
+            rawItems.push({
               id: ann.id,
               type: 'announcement',
               title: `Announcement: ${ann.title}`,
               subtitle: 'New alert published',
-              time: new Date(ann.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              timestamp: new Date(ann.created_at).getTime(),
             });
           });
         }
 
         if (recentProfiles.data) {
           recentProfiles.data.forEach((prof) => {
-            items.push({
+            rawItems.push({
               id: prof.id,
               type: 'visitor_location',
-              title: prof.name || 'Anonymous Visitor',
-              subtitle: prof.is_anonymous ? 'Guest joined session' : 'Registered new account',
-              time: new Date(prof.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              title: prof.name || 'Visitor',
+              subtitle: 'Registered new account',
+              timestamp: new Date(prof.created_at).getTime(),
             });
           });
         }
 
-        // Sort by time or just display combined
-        setActivities(items.slice(0, 8));
+        if (recentVisitorLocations.data) {
+          recentVisitorLocations.data.forEach((loc) => {
+            rawItems.push({
+              id: loc.id,
+              type: 'visitor_location',
+              title: `Visitor (${loc.session_id ? loc.session_id.substring(0, 8) : 'Anonymous'})`,
+              subtitle: 'Guest joined session',
+              timestamp: new Date(loc.updated_at).getTime(),
+            });
+          });
+        }
+
+        // Sort items by time descending and format for display
+        const sortedItems: ActivityItem[] = rawItems
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .slice(0, 8)
+          .map((item) => ({
+            id: item.id,
+            type: item.type,
+            title: item.title,
+            subtitle: item.subtitle,
+            time: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }));
+
+        setActivities(sortedItems);
       } catch (err) {
         console.error('Error loading dashboard stats:', err);
       } finally {

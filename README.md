@@ -1,10 +1,9 @@
 # 🗺️ Custom Exhibition Navigation & Live Tracking System
 
-**Live Demo:** [exhibition-navigation-system.pages.dev](https://exhibition-navigation-system.pages.dev/)
+* **Live Demo (Visitor Portal):** [exhibition-navigation-system.pages.dev](https://exhibition-navigation-system.pages.dev/)
+* **Admin Portal Login:** [exhibition-navigation-system.pages.dev/admin/](https://exhibition-navigation-system.pages.dev/admin/)
 
 Interactive indoor/outdoor map routing, directory search, realtime alerts, and administrative features built using React, Vite, Leaflet, and Supabase.
-
----
 
 
 

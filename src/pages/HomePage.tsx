@@ -22,7 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { GPSPermissionBanner } from '../components/GPSPermissionBanner';
 
 export function HomePage() {
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
 
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -136,20 +136,24 @@ export function HomePage() {
                 </span>
               )}
             </button>
-            <Link to="/profile" className="btn btn-ghost btn-sm home-action-btn" id="home-profile-btn">
-              <User size={14} />
-              Profile
-            </Link>
-            {profile?.role === 'admin' && (
-              <Link to="/admin/dashboard" className="btn btn-ghost btn-sm home-action-btn" style={{ border: '1px dashed var(--color-warning)', color: 'var(--color-warning)' }} id="home-admin-btn">
-                <Shield size={14} />
-                Admin
-              </Link>
-            )}
-            <button className="btn btn-danger btn-sm" onClick={handleSignOut} id="home-signout-btn">
-              <LogOut size={14} />
-              Out
-            </button>
+            {user ? (
+              <>
+                <Link to="/profile" className="btn btn-ghost btn-sm home-action-btn" id="home-profile-btn">
+                  <User size={14} />
+                  Profile
+                </Link>
+                {profile?.role === 'admin' && (
+                  <a href="/admin/" className="btn btn-ghost btn-sm home-action-btn" style={{ border: '1px dashed var(--color-warning)', color: 'var(--color-warning)', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }} id="home-admin-btn">
+                    <Shield size={14} />
+                    Admin
+                  </a>
+                )}
+                <button className="btn btn-danger btn-sm" onClick={handleSignOut} id="home-signout-btn">
+                  <LogOut size={14} />
+                  Out
+                </button>
+              </>
+            ) : null}
           </div>
         </header>
 

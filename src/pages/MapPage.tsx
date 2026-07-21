@@ -561,9 +561,9 @@ export function MapPage() {
               Stores
             </Link>
             {profile?.role === 'admin' && (
-              <Link to="/admin/dashboard" className="btn btn-ghost btn-sm" style={{ padding: '0.35rem 0.65rem', border: '1px dashed var(--color-warning)', color: 'var(--color-warning)' }}>
+              <a href="/admin/" className="btn btn-ghost btn-sm" style={{ padding: '0.35rem 0.65rem', border: '1px dashed var(--color-warning)', color: 'var(--color-warning)', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
                 Admin
-              </Link>
+              </a>
             )}
           </div>
 
@@ -614,10 +614,10 @@ export function MapPage() {
             Stores
           </Link>
           {profile?.role === 'admin' && (
-            <Link to="/admin/dashboard" className="btn btn-ghost btn-sm" style={{ flexDirection: 'column', gap: '0.15rem', padding: '0.35rem 0.5rem', fontSize: '0.6rem', color: 'var(--color-warning)', minHeight: 'unset' }}>
+            <a href="/admin/" className="btn btn-ghost btn-sm" style={{ flexDirection: 'column', gap: '0.15rem', padding: '0.35rem 0.5rem', fontSize: '0.6rem', color: 'var(--color-warning)', minHeight: 'unset', display: 'inline-flex', alignItems: 'center' }}>
               <Navigation size={18} />
               Admin
-            </Link>
+            </a>
           )}
         </nav>
 

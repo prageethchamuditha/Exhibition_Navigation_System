@@ -19,6 +19,11 @@ begin
     where is_anonymous = true
     and created_at < (now() - interval '1 hour')
   );
+
+  -- Delete stale anonymous visitor locations (older than 1 hour)
+  delete from public.visitor_locations
+  where user_id is null
+  and updated_at < (now() - interval '1 hour');
 end;
 $$;
 

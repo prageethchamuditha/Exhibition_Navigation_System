@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MapPin,
   LayoutDashboard,
@@ -25,14 +25,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/admin/dashboard',     icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
-  { to: '/admin/exhibitions',   icon: <CalendarDays size={18} />,    label: 'Exhibitions' },
-  { to: '/admin/stores',        icon: <Store size={18} />,           label: 'Stores' },
-  { to: '/admin/categories',    icon: <Tag size={18} />,             label: 'Categories' },
-  { to: '/admin/nodes',         icon: <Navigation2 size={18} />,     label: 'Nav Nodes' },
-  { to: '/admin/announcements', icon: <Megaphone size={18} />,       label: 'Announcements' },
-  { to: '/admin/visitors',      icon: <Users size={18} />,           label: 'Visitors' },
-  { to: '/admin/analytics',     icon: <BarChart3 size={18} />,        label: 'Analytics' },
+  { to: '/dashboard',     icon: <LayoutDashboard size={18} />, label: 'Dashboard' },
+  { to: '/exhibitions',   icon: <CalendarDays size={18} />,    label: 'Exhibitions' },
+  { to: '/stores',        icon: <Store size={18} />,           label: 'Stores' },
+  { to: '/categories',    icon: <Tag size={18} />,             label: 'Categories' },
+  { to: '/nodes',         icon: <Navigation2 size={18} />,     label: 'Nav Nodes' },
+  { to: '/announcements', icon: <Megaphone size={18} />,       label: 'Announcements' },
+  { to: '/visitors',      icon: <Users size={18} />,           label: 'Visitors' },
+  { to: '/analytics',     icon: <BarChart3 size={18} />,        label: 'Analytics' },
 ];
 
 export function AdminLayout({ children }: { children: ReactNode }) {
@@ -163,10 +163,10 @@ export function AdminLayout({ children }: { children: ReactNode }) {
             >
               {mobileOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
-            <Link to="/" className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.65rem', border: '1px solid var(--color-border)', fontSize: '0.8rem' }} id="admin-home-btn">
+            <a href="/" className="btn btn-ghost btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.65rem', border: '1px solid var(--color-border)', fontSize: '0.8rem' }} id="admin-home-btn">
               <Home size={14} />
               Return Home
-            </Link>
+            </a>
             <style>{`
               @media (max-width: 768px) {
                 #admin-mobile-menu-btn { display: flex !important; }
