@@ -17,6 +17,7 @@ const StoreDetailPage = lazy(() => import('./pages/StoreDetailPage').then(m => (
 const ExhibitionDirectoryPage = lazy(() => import('./pages/ExhibitionDirectoryPage').then(m => ({ default: m.ExhibitionDirectoryPage })));
 const ExhibitionDetailPage = lazy(() => import('./pages/ExhibitionDetailPage').then(m => ({ default: m.ExhibitionDetailPage })));
 const MapPage = lazy(() => import('./pages/MapPage').then(m => ({ default: m.MapPage })));
+const Map3DPage = lazy(() => import('./pages/Map3DPage').then(m => ({ default: m.Map3DPage })));
 const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 
 // Centered loading fallback component
@@ -54,6 +55,7 @@ function App() {
             {/* Public routes (no login required) */}
             <Route path="/" element={<HomePage />} />
             <Route path="/map" element={<MapPage />} />
+            <Route path="/map3d" element={<Map3DPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/exhibitions" element={<ExhibitionDirectoryPage />} />
             <Route path="/exhibitions/:id" element={<ExhibitionDetailPage />} />

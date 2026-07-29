@@ -164,8 +164,13 @@ export function MapView({
               font-size: 0.75rem;
               font-weight: 800;
               z-index: 10;
+              overflow: hidden;
             ">
-              ${store.name[0]}
+              ${store.logo_url ? `
+                <img src="${store.logo_url}" alt="${store.name}" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
+              ` : `
+                ${store.name[0]}
+              `}
             </div>
           </div>
           <style>
@@ -266,22 +271,32 @@ export function MapView({
 
     const coordinates = route.map((node) => [node.latitude, node.longitude] as [number, number]);
 
-    // Draw dashed path polyline
-    const polyline = L.polyline(coordinates, {
-      color: '#6366f1',
-      weight: 6,
-      opacity: 0.9,
-      dashArray: '12, 12',
+    // Draw bold, clean route with casing to make it look premium and highly visible
+    const routeCasing = L.polyline(coordinates, {
+      color: '#4f46e5',
+      weight: 12,
+      opacity: 0.3,
+      lineCap: 'round',
+      lineJoin: 'round',
     });
 
-    routeLayer.addLayer(polyline);
+    const routeCore = L.polyline(coordinates, {
+      color: '#6366f1',
+      weight: 6,
+      opacity: 1.0,
+      lineCap: 'round',
+      lineJoin: 'round',
+    });
+
+    routeLayer.addLayer(routeCasing);
+    routeLayer.addLayer(routeCore);
 
     // Only fit bounds when the DESTINATION changes (i.e. a new route is chosen).
     // The last node in the route represents the destination.
     const destId = route[route.length - 1].id;
     if (destId !== lastFittedDestRef.current) {
       lastFittedDestRef.current = destId;
-      map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
+      map.fitBounds(routeCore.getBounds(), { padding: [60, 60] });
     }
     // If destId is the same (GPS just updated our start position), do nothing —
     // the user's current pan/zoom is preserved.

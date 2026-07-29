@@ -19,7 +19,7 @@ import {
   type NavigationEdge,
 } from '../lib/supabase';
 import { MapView } from '../components/MapView';
-import { calculateShortestPath, findClosestNode, getDistance, getHeading } from '../utils/dijkstra';
+import { calculateShortestPath, calculateShortestPathWithSnapping, findClosestNode, getDistance, getHeading } from '../utils/dijkstra';
 import { logAnalyticsEvent } from '../lib/analytics';
 
 export function MapPage() {
@@ -71,7 +71,7 @@ export function MapPage() {
   const [totalDistance, setTotalDistance] = useState(0); // in meters
   const [guideSteps, setGuideSteps] = useState<string[]>([]);
   const [navigationActive, setNavigationActive] = useState(false);
-  const [mapTheme, setMapTheme] = useState<'dark' | 'streets' | 'light'>('dark');
+  const [mapTheme, setMapTheme] = useState<'dark' | 'streets' | 'light'>('light');
   const [showMesh, setShowMesh] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
 
@@ -326,42 +326,47 @@ export function MapPage() {
       const connectedNodes = nodes.filter((n) => connectedNodeIds.has(n.id) || n.type === 'entrance');
       const searchNodesList = connectedNodes.length > 0 ? connectedNodes : nodes;
 
-      let startNode: NavigationNode | undefined;
       const entranceNodes = nodes.filter((n) => n.type === 'entrance');
-
-      if (userLat !== null && userLng !== null && !mockMode) {
-        const poorGps = gpsAccuracy !== null && gpsAccuracy > GPS_ACCURACY_THRESHOLD;
-
-        if (poorGps && entranceNodes.length > 0) {
-          // GPS is too imprecise — snap to the nearest known entrance node
-          // instead of using the raw (potentially wrong) GPS coordinate.
-          const nearestEntrance = findClosestNode(userLat, userLng, entranceNodes);
-          startNode = nearestEntrance ?? undefined;
-          setSnappedToNode(startNode?.label ?? null);
-        } else {
-          // GPS is accurate enough — use the closest CONNECTED node to real position.
-          const closest = findClosestNode(userLat, userLng, searchNodesList);
-          startNode = closest ?? undefined;
-          setSnappedToNode(null);
-        }
-      } else {
-        // Mock mode — use the manually selected start node.
-        startNode = nodes.find((n) => n.id === mockStartNodeId);
-        setSnappedToNode(null);
-      }
-
-      // Last-resort fallback if nothing matched above
-      if (!startNode) {
-        startNode = entranceNodes.length > 0 ? entranceNodes[0] : nodes[0];
-        setSnappedToNode(startNode?.label ?? null);
-      }
 
       let endNode = selectedDestinationStoreId
         ? (nodes.find((n) => n.store_id === selectedDestinationStoreId) || findClosestNode(targetLat, targetLng, searchNodesList))
         : nodes.find((n) => n.id === selectedDestinationNodeId);
 
-      if (startNode && endNode) {
-        path = calculateShortestPath(startNode.id, endNode.id, nodes, edges);
+      if (endNode) {
+        if (userLat !== null && userLng !== null && !mockMode) {
+          const poorGps = gpsAccuracy !== null && gpsAccuracy > GPS_ACCURACY_THRESHOLD;
+          if (poorGps && entranceNodes.length > 0) {
+            const nearestEntrance = findClosestNode(userLat, userLng, entranceNodes);
+            setSnappedToNode(nearestEntrance?.label ?? null);
+          } else {
+            setSnappedToNode(null);
+          }
+
+          path = calculateShortestPathWithSnapping(
+            userLat,
+            userLng,
+            targetLat,
+            targetLng,
+            endNode.id,
+            nodes,
+            edges,
+            gpsAccuracy,
+            GPS_ACCURACY_THRESHOLD
+          );
+        } else {
+          // Mock mode or fallback start
+          let startNode = mockStartNodeId ? nodes.find((n) => n.id === mockStartNodeId) : undefined;
+          if (!startNode) {
+            startNode = entranceNodes.length > 0 ? entranceNodes[0] : nodes[0];
+            setSnappedToNode(startNode?.label ?? null);
+          } else {
+            setSnappedToNode(null);
+          }
+
+          if (startNode) {
+            path = calculateShortestPath(startNode.id, endNode.id, nodes, edges);
+          }
+        }
       }
     }
 
@@ -479,6 +484,14 @@ export function MapPage() {
       }
     }
   };
+  
+  // Extract unique categories from stores for the map legend
+  const mapCategories = stores.reduce<Array<{ id: string; name: string; color: string | null }>>((acc, store) => {
+    if (store.categories && !acc.some((c) => c.id === store.categories!.id)) {
+      acc.push(store.categories);
+    }
+    return acc;
+  }, []);
 
   const filteredSearchStores = storeSearchQuery.trim()
     ? stores.filter((st) =>
@@ -701,10 +714,22 @@ export function MapPage() {
                   
                   <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '0.25rem', paddingTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                     <span style={{ fontSize: '0.65rem', color: 'var(--color-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>CATEGORIES</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem' }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-primary)', display: 'inline-block' }} />
-                      <span>General Booths</span>
-                    </div>
+                    
+                    {/* Dynamic Exhibitor categories from database */}
+                    {mapCategories.length > 0 ? (
+                      mapCategories.map((cat) => (
+                        <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem' }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color || 'var(--color-primary)', display: 'inline-block' }} />
+                          <span>{cat.name}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-primary)', display: 'inline-block' }} />
+                        <span>General Booths</span>
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem' }}>
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22d3ee', display: 'inline-block' }} />
                       <span>Entrances</span>
@@ -713,6 +738,12 @@ export function MapPage() {
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#a78bfa', display: 'inline-block' }} />
                       <span>Points of Interest</span>
                     </div>
+                    {nodes.some((n) => n.type === 'emergency') && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f43f5e', display: 'inline-block' }} />
+                        <span>Emergency Exits</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

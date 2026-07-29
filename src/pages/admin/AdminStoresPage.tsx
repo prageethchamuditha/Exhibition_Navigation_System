@@ -17,6 +17,7 @@ import {
   type Exhibition,
   type StoreImage,
   type Promotion,
+  type Profile,
 } from '../../lib/supabase';
 import { AdminTable } from '../../components/admin/AdminTable';
 import { AdminModal } from '../../components/admin/AdminModal';
@@ -24,10 +25,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { FormMapPicker } from '../../components/admin/FormMapPicker';
 
 export function AdminStoresPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
+  const [storeAdmins, setStoreAdmins] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
@@ -38,6 +40,7 @@ export function AdminStoresPage() {
   const [currentStore, setCurrentStore] = useState<Partial<Store> | null>(null);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
   // Tab state inside modal
   const [activeModalTab, setActiveModalTab] = useState<'details' | 'gallery' | 'promotions'>('details');
@@ -58,19 +61,23 @@ export function AdminStoresPage() {
 
 
   useEffect(() => {
-    loadDependencies();
-  }, []);
+    if (user) {
+      loadDependencies();
+    }
+  }, [user, profile?.role]);
 
   async function loadDependencies() {
     try {
       setLoading(true);
-      const [categoriesRes, exhibitionsRes] = await Promise.all([
+      const [categoriesRes, exhibitionsRes, storeAdminsRes] = await Promise.all([
         supabase.from('categories').select('*').order('name'),
         supabase.from('exhibitions').select('*').order('title'),
+        supabase.from('profiles').select('*').eq('role', 'store_admin').order('name'),
       ]);
 
       setCategories(categoriesRes.data || []);
       setExhibitions(exhibitionsRes.data || []);
+      setStoreAdmins(storeAdminsRes.data || []);
 
       await fetchStores();
     } catch (err) {
@@ -82,17 +89,29 @@ export function AdminStoresPage() {
 
   async function fetchStores() {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('stores')
         .select(`
           *,
           categories:category_id (id, name, color),
           exhibitions:exhibition_id (id, title)
-        `)
-        .order('created_at', { ascending: false });
+        `);
+
+      if (profile?.role === 'store_admin' && user?.id) {
+        query = query.eq('store_admin_id', user.id);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
-      setStores(data || []);
+      const storesList = data || [];
+      setStores(storesList);
+
+      // If store_admin, automatically open the edit page for their assigned store
+      if (profile?.role === 'store_admin' && storesList.length > 0 && !hasAutoOpened) {
+        setHasAutoOpened(true);
+        handleOpenEdit(storesList[0]);
+      }
     } catch (err) {
       console.error('Error fetching stores:', err);
     }
@@ -198,7 +217,10 @@ export function AdminStoresPage() {
         email: currentStore.email || null,
         website: currentStore.website || null,
         is_active: !!currentStore.is_active,
-        created_by: user.id,
+        store_admin_id: profile?.role === 'admin'
+          ? (currentStore.store_admin_id ?? null)
+          : null,
+        created_by: currentStore.created_by || user.id,
       };
 
       if (currentStore.id) {
@@ -470,13 +492,15 @@ export function AdminStoresPage() {
           >
             <Edit2 size={14} />
           </button>
-          <button
-            className="btn btn-danger btn-sm btn-icon"
-            onClick={() => handleOpenDelete(row)}
-            title="Delete store"
-          >
-            <Trash2 size={14} />
-          </button>
+          {profile?.role !== 'store_admin' && (
+            <button
+              className="btn btn-danger btn-sm btn-icon"
+              onClick={() => handleOpenDelete(row)}
+              title="Delete store"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       ),
     },
@@ -486,13 +510,15 @@ export function AdminStoresPage() {
     <main className="admin-page">
       <header className="admin-page-header">
         <div>
-          <h1>Stores & Booths</h1>
-          <p>Organize exhibitors, floor maps, and contact info</p>
+          <h1>{profile?.role === 'store_admin' ? 'My Store Design & Settings' : 'Stores & Booths'}</h1>
+          <p>{profile?.role === 'store_admin' ? 'Manage your store details, photos, and promotions' : 'Organize exhibitors, floor maps, and contact info'}</p>
         </div>
-        <button className="btn btn-primary" onClick={handleOpenAdd}>
-          <Plus size={16} />
-          Add Store
-        </button>
+        {profile?.role !== 'store_admin' && (
+          <button className="btn btn-primary" onClick={handleOpenAdd}>
+            <Plus size={16} />
+            Add Store
+          </button>
+        )}
       </header>
 
       {/* Toolbar */}
@@ -635,6 +661,25 @@ export function AdminStoresPage() {
                   </select>
                 </div>
               </div>
+
+              {profile?.role === 'admin' && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="store-admin">Store Administrator</label>
+                  <select
+                    id="store-admin"
+                    className="form-select"
+                    value={currentStore.store_admin_id || ''}
+                    onChange={(e) => setCurrentStore({ ...currentStore, store_admin_id: e.target.value || null })}
+                  >
+                    <option value="">Unassigned / None</option>
+                    {storeAdmins.map((adm) => (
+                      <option key={adm.id} value={adm.id}>
+                        {adm.name || 'Unnamed'} ({adm.email || 'No email'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                 <div className="form-group">

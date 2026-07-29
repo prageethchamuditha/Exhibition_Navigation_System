@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { MapPin, Mail, Lock, Eye, EyeOff, LogIn, UserX } from 'lucide-react';
+import { MapPin, Mail, Lock, Eye, EyeOff, LogIn, UserX, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export function LoginPage() {
@@ -9,7 +9,9 @@ export function LoginPage() {
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/';
 
-  const [email, setEmail] = useState('');
+  const isAdmin = window.location.pathname.includes('/admin');
+
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -21,14 +23,31 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await signIn(email, password);
-      navigate(from, { replace: true });
+      let loginIdentifier = username;
+      if (!username.includes('@')) {
+        if (username === 'cipherx.mora') {
+          loginIdentifier = 'cipherx.mora@gmail.com';
+        } else {
+          loginIdentifier = `${username}@exnav.local`;
+        }
+      }
+
+      const role = await signIn(loginIdentifier, password);
+
+      // Redirect based on role
+      if (role === 'admin') {
+        navigate('/dashboard', { replace: true });
+      } else {
+        // store_admin and visitors both go to the homepage
+        navigate(from === '/login' ? '/' : (from || '/'), { replace: true });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign in failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleAnonymous = async () => {
     setError('');
@@ -51,12 +70,12 @@ export function LoginPage() {
           <div className="brand-icon">
             <MapPin size={26} color="#fff" />
           </div>
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ text_align: 'center' } as any}>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
               Welcome back
             </h1>
             <p style={{ color: 'var(--color-muted)', fontSize: '0.9rem', marginTop: '0.25rem' }}>
-              Sign in to your ExNav account
+              {isAdmin ? 'Sign in to the Admin Portal' : 'Sign in to your ExNav account'}
             </p>
           </div>
         </div>
@@ -71,21 +90,30 @@ export function LoginPage() {
         {/* Form */}
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div className="form-group">
-            <label className="form-label" htmlFor="login-email">Email</label>
+            <label className="form-label" htmlFor="login-username">
+              {isAdmin ? 'Username' : 'Username or Email'}
+            </label>
             <div style={{ position: 'relative' }}>
-              <Mail
-                size={16}
-                style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-muted)' }}
-              />
+              {isAdmin ? (
+                <User
+                  size={16}
+                  style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-muted)' }}
+                />
+              ) : (
+                <Mail
+                  size={16}
+                  style={{ position: 'absolute', left: '0.9rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-muted)' }}
+                />
+              )}
               <input
-                id="login-email"
-                type="email"
+                id="login-username"
+                type="text"
                 className="form-input"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder={isAdmin ? 'admin_username' : 'Username or email'}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
-                autoComplete="email"
+                autoComplete="username"
                 style={{ paddingLeft: '2.5rem' }}
               />
             </div>
@@ -143,31 +171,35 @@ export function LoginPage() {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="divider" style={{ margin: '1.25rem 0' }}>or</div>
+        {!isAdmin && (
+          <>
+            {/* Divider */}
+            <div className="divider" style={{ margin: '1.25rem 0' }}>or</div>
 
-        {/* Anonymous */}
-        <button
-          id="login-guest"
-          type="button"
-          className="btn btn-ghost btn-full"
-          onClick={handleAnonymous}
-          disabled={anonLoading}
-        >
-          {anonLoading ? <span className="spinner" style={{ borderTopColor: 'var(--color-text)' }} /> : <UserX size={16} />}
-          {anonLoading ? 'Starting session…' : 'Continue as Guest'}
-        </button>
+            {/* Anonymous */}
+            <button
+              id="login-guest"
+              type="button"
+              className="btn btn-ghost btn-full"
+              onClick={handleAnonymous}
+              disabled={anonLoading}
+            >
+              {anonLoading ? <span className="spinner" style={{ borderTopColor: 'var(--color-text)' }} /> : <UserX size={16} />}
+              {anonLoading ? 'Starting session…' : 'Continue as Guest'}
+            </button>
 
-        {/* Register link */}
-        <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-          Don't have an account?{' '}
-          <Link
-            to="/register"
-            style={{ color: 'var(--color-primary-h)', fontWeight: 600, textDecoration: 'none' }}
-          >
-            Create one
-          </Link>
-        </p>
+            {/* Register link */}
+            <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+              Don't have an account?{' '}
+              <Link
+                to="/register"
+                style={{ color: 'var(--color-primary-h)', fontWeight: 600, textDecoration: 'none' }}
+              >
+                Create one
+              </Link>
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

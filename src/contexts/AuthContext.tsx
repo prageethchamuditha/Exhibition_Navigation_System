@@ -17,7 +17,7 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   signUp: (email: string, password: string, name: string, phone?: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   signInAnonymously: () => Promise<void>;
   updateProfile: (data: Partial<Pick<Profile, 'name' | 'phone'>>) => Promise<void>;
@@ -61,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Bootstrap auth state on mount
   useEffect(() => {
     let active = true;
+    let currentUserId: string | null = null;
 
     async function bootstrap() {
       try {
@@ -71,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
+          currentUserId = session.user.id;
           await fetchProfile(session.user.id);
         }
       } catch (err) {
@@ -84,17 +86,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listen for auth state changes (login / logout / token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, session: Session | null) => {
+      async (event: AuthChangeEvent, session: Session | null) => {
         if (!active) return;
-        setLoading(true);
+        
+        const newUserId = session?.user?.id ?? null;
         setSession(session);
         setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
+        
+        if (newUserId) {
+          const isUserChanged = newUserId !== currentUserId;
+          const needsFetch = isUserChanged || event === 'SIGNED_IN' || event === 'USER_UPDATED';
+          
+          currentUserId = newUserId;
+          
+          if (needsFetch) {
+            setLoading(true);
+            await fetchProfile(newUserId);
+            setLoading(false);
+          }
         } else {
+          currentUserId = null;
           setProfile(null);
         }
-        setLoading(false);
       }
     );
 
@@ -123,8 +136,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const signIn = async (email: string, password: string): Promise<string | null> => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       console.error('Sign in error details:', error);
       const message = error.message && error.message !== '{}' 
@@ -132,6 +145,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : 'Sign in failed. Please check your credentials and try again.';
       throw new Error(message);
     }
+    // Fetch role from profile so LoginPage can redirect appropriately
+    if (data?.user?.id) {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user.id)
+        .single();
+      return profileData?.role ?? null;
+    }
+    return null;
   };
 
   const signOut = async () => {

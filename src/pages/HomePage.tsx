@@ -16,6 +16,7 @@ import {
   TrendingUp,
   ChevronRight,
   Shield,
+  Building2,
 } from 'lucide-react';
 import { supabase, type Exhibition, type Store as StoreType } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -157,7 +158,70 @@ export function HomePage() {
           </div>
         </header>
 
-        {/* ── Map CTA ────────────────────────────────────────── */}
+        {/* ── Store Admin Panel Banner ─────────────────────────── */}
+        {profile?.role === 'store_admin' && (
+          <section
+            id="store-admin-banner"
+            style={{
+              background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(168,85,247,0.15) 100%)',
+              border: '1px solid rgba(99,102,241,0.35)',
+              borderRadius: 16,
+              padding: '1.25rem 1.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              marginBottom: '1rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Store size={22} color="#fff" />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text)' }}>
+                  Store Administrator
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)', marginTop: 2 }}>
+                  You have store management access. Design and manage your store.
+                </div>
+              </div>
+            </div>
+            <a
+              href="/admin/stores"
+              id="home-manage-store-btn"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.55rem 1.1rem',
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 4px 14px rgba(99,102,241,0.4)',
+                transition: 'opacity 0.2s',
+              }}
+            >
+              <Store size={15} />
+              Manage My Store
+            </a>
+          </section>
+        )}
+
         <section className="home-map-cta-enhanced">
           <div className="home-map-cta-glow" />
           <div className="home-map-cta-content">
@@ -174,6 +238,21 @@ export function HomePage() {
           <Link to="/map" className="btn btn-primary home-map-cta-btn" id="home-open-map-btn">
             Open Map
             <ArrowRight size={15} />
+          </Link>
+          <Link
+            to="/map3d"
+            id="home-open-3d-btn"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.6rem 1.1rem', borderRadius: 10, fontWeight: 600, fontSize: '0.85rem',
+              background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+              color: '#fff', textDecoration: 'none',
+              boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
+              border: 'none', whiteSpace: 'nowrap',
+            }}
+          >
+            <Building2 size={15} />
+            3D Campus
           </Link>
         </section>
 

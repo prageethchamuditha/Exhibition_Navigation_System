@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect, type ReactNode } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   MapPin,
   LayoutDashboard,
@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   BarChart3,
   Home,
+  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -32,14 +33,21 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/nodes',         icon: <Navigation2 size={18} />,     label: 'Nav Nodes' },
   { to: '/announcements', icon: <Megaphone size={18} />,       label: 'Announcements' },
   { to: '/visitors',      icon: <Users size={18} />,           label: 'Visitors' },
-  { to: '/analytics',     icon: <BarChart3 size={18} />,        label: 'Analytics' },
+  { to: '/users',         icon: <UserCheck size={18} />,       label: 'Users' },
+  { to: '/analytics',     icon: <BarChart3 size={18} />,       label: 'Analytics' },
 ];
 
 export function AdminLayout({ children }: { children: ReactNode }) {
   const { signOut, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    // Store admins start from the visitor homepage and navigate via the "Manage My Store" button
+  }, []);
+
 
   const handleSignOut = async () => {
     await signOut();
@@ -66,47 +74,64 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
         {/* Nav */}
         <nav className="admin-sidebar-nav">
-          <div className="admin-sidebar-section">Main</div>
-          {NAV_ITEMS.slice(0, 1).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? item.label : undefined}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="admin-nav-label">{item.label}</span>
-            </NavLink>
-          ))}
+          {profile?.role === 'store_admin' ? (
+            <>
+              <div className="admin-sidebar-section">Management</div>
+              <NavLink
+                to="/stores"
+                className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
+                onClick={() => setMobileOpen(false)}
+                title={collapsed ? 'My Store' : undefined}
+              >
+                <span className="nav-icon"><Store size={18} /></span>
+                <span className="admin-nav-label">My Store</span>
+              </NavLink>
+            </>
+          ) : (
+            <>
+              <div className="admin-sidebar-section">Main</div>
+              {NAV_ITEMS.slice(0, 1).map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
+                  onClick={() => setMobileOpen(false)}
+                  title={collapsed ? item.label : undefined}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="admin-nav-label">{item.label}</span>
+                </NavLink>
+              ))}
 
-          <div className="admin-sidebar-section" style={{ marginTop: '0.5rem' }}>Content</div>
-          {NAV_ITEMS.slice(1, 5).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? item.label : undefined}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="admin-nav-label">{item.label}</span>
-            </NavLink>
-          ))}
+              <div className="admin-sidebar-section" style={{ marginTop: '0.5rem' }}>Content</div>
+              {NAV_ITEMS.slice(1, 5).map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
+                  onClick={() => setMobileOpen(false)}
+                  title={collapsed ? item.label : undefined}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="admin-nav-label">{item.label}</span>
+                </NavLink>
+              ))}
 
-          <div className="admin-sidebar-section" style={{ marginTop: '0.5rem' }}>Engagement</div>
-          {NAV_ITEMS.slice(5).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
-              onClick={() => setMobileOpen(false)}
-              title={collapsed ? item.label : undefined}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="admin-nav-label">{item.label}</span>
-            </NavLink>
-          ))}
+              <div className="admin-sidebar-section" style={{ marginTop: '0.5rem' }}>Engagement</div>
+              {NAV_ITEMS.slice(5).map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `admin-nav-item${isActive ? ' active' : ''}`}
+                  onClick={() => setMobileOpen(false)}
+                  title={collapsed ? item.label : undefined}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span className="admin-nav-label">{item.label}</span>
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
 
         {/* Footer */}

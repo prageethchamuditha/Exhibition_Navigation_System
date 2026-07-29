@@ -47,7 +47,7 @@ export function AdminVisitorsPage() {
   async function fetchVisitorsAndLocations() {
     try {
       const [profilesRes, locationsRes] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').eq('is_anonymous', true).order('created_at', { ascending: false }),
         supabase.from('visitor_locations').select('*').order('updated_at', { ascending: false }),
       ]);
 

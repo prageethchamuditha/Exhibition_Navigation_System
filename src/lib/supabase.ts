@@ -17,8 +17,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export interface Profile {
   id: string;
   name: string | null;
+  email: string | null;
   phone: string | null;
-  role: 'visitor' | 'admin';
+  role: 'visitor' | 'admin' | 'store_admin';
   avatar_url: string | null;
   is_anonymous: boolean;
   created_at: string;
@@ -90,6 +91,7 @@ export interface Store {
   website: string | null;
   is_active: boolean;
   created_by: string | null;
+  store_admin_id: string | null;  // UUID of the store_admin assigned to manage this store
   created_at: string;
   updated_at: string;
   // Joined fields (optional, populated by select queries)

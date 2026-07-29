@@ -110,9 +110,9 @@ export function ProfilePage() {
                 {profile?.is_anonymous && (
                   <span className="badge badge-anon">Guest</span>
                 )}
-                <span className={`badge ${profile?.role === 'admin' ? 'badge-admin' : 'badge-visitor'}`}>
+                <span className={`badge ${profile?.role === 'admin' ? 'badge-admin' : (profile?.role === 'store_admin' ? 'badge-store-admin' : 'badge-visitor')}`}>
                   <Shield size={10} />
-                  {profile?.role ?? 'visitor'}
+                  {profile?.role === 'store_admin' ? 'store admin' : (profile?.role ?? 'visitor')}
                 </span>
                 <span className={`badge ${permission === 'granted' ? 'badge-gps-on' : 'badge-gps-off'}`}>
                   <Navigation size={10} />
@@ -267,8 +267,8 @@ export function ProfilePage() {
           </h2>
           <div className="info-row">
             <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)', fontWeight: 600 }}>Role</span>
-            <span className={`badge ${profile?.role === 'admin' ? 'badge-admin' : 'badge-visitor'}`}>
-              {profile?.role ?? 'visitor'}
+            <span className={`badge ${profile?.role === 'admin' ? 'badge-admin' : (profile?.role === 'store_admin' ? 'badge-store-admin' : 'badge-visitor')}`}>
+              {profile?.role === 'store_admin' ? 'store admin' : (profile?.role ?? 'visitor')}
             </span>
           </div>
           <div className="info-row">

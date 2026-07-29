@@ -36,6 +36,374 @@ export function getDistance(
 }
 
 /**
+ * Project a lat/lng point onto a line segment defined by two lat/lng endpoints.
+ * Returns the closest lat/lng point on the segment and the distance to it.
+ */
+export function projectPointToSegment(
+  latP: number,
+  lonP: number,
+  latA: number,
+  lonA: number,
+  latB: number,
+  lonB: number
+): { latitude: number; longitude: number; distance: number } {
+  // If endpoints are identical, return distance to A
+  if (latA === latB && lonA === lonB) {
+    const distance = getDistance(latP, lonP, latA, lonA);
+    return { latitude: latA, longitude: lonA, distance };
+  }
+
+  // Use average latitude for longitude scaling
+  const latMid = (latA + latB + latP) / 3;
+  const cosMid = Math.cos((latMid * Math.PI) / 180);
+
+  // Convert to local scaled coordinate space
+  const xA = lonA * cosMid;
+  const yA = latA;
+  const xB = lonB * cosMid;
+  const yB = latB;
+  const xP = lonP * cosMid;
+  const yP = latP;
+
+  // Vector AB and AP
+  const dx = xB - xA;
+  const dy = yB - yA;
+  const dpx = xP - xA;
+  const dpy = yP - yA;
+
+  // Projection factor t clamped to [0, 1] segment
+  const abLen2 = dx * dx + dy * dy;
+  let t = (dpx * dx + dpy * dy) / abLen2;
+  t = Math.max(0, Math.min(1, t));
+
+  // Interpolated point C
+  const latC = latA + t * (latB - latA);
+  const lonC = lonA + t * (lonB - lonA);
+
+  const distance = getDistance(latP, lonP, latC, lonC);
+
+  return { latitude: latC, longitude: lonC, distance };
+}
+
+/**
+ * Compute the shortest path from coordinates with edge-snapping and dynamic node injection.
+ */
+export function calculateShortestPathWithSnapping(
+  startLat: number,
+  startLng: number,
+  endLat: number,
+  endLng: number,
+  endNodeId: string,
+  nodes: NavigationNode[],
+  edges: NavigationEdge[],
+  gpsAccuracy: number | null,
+  gpsThreshold: number
+): NavigationNode[] {
+  if (nodes.length === 0 || !endNodeId) return [];
+
+  const endNode = nodes.find((n) => n.id === endNodeId);
+  if (!endNode) return [];
+
+  const entranceNodes = nodes.filter((n) => n.type === 'entrance');
+
+  // 1. Snapping to entrance fallback when GPS accuracy is too poor
+  let actualStartLat = startLat;
+  let actualStartLng = startLng;
+  if (gpsAccuracy !== null && gpsAccuracy > gpsThreshold && entranceNodes.length > 0) {
+    const nearestEntrance = findClosestNode(startLat, startLng, entranceNodes);
+    if (nearestEntrance) {
+      actualStartLat = nearestEntrance.latitude;
+      actualStartLng = nearestEntrance.longitude;
+    }
+  }
+
+  // 2. Identify floors for start and destination
+  const closestStartNode = findClosestNode(actualStartLat, actualStartLng, nodes);
+  if (!closestStartNode) return [];
+
+  const startFloor = closestStartNode.floor || null;
+  const endFloor = endNode.floor || null;
+
+  // 3. Clone structures to dynamically mutate graph
+  const tempNodes = [...nodes];
+  let tempEdges = [...edges];
+
+  // 4. Start Snap: Find closest edge to start coordinate
+  let bestStartProj: { latitude: number; longitude: number; distance: number } | null = null;
+  let bestStartEdge: NavigationEdge | null = null;
+
+  for (const edge of edges) {
+    const nodeA = nodes.find((n) => n.id === edge.from_node_id);
+    const nodeB = nodes.find((n) => n.id === edge.to_node_id);
+    if (!nodeA || !nodeB) continue;
+
+    const floorA = nodeA.floor || null;
+    const floorB = nodeB.floor || null;
+    if (floorA !== startFloor || floorB !== startFloor) continue;
+
+    const proj = projectPointToSegment(
+      actualStartLat,
+      actualStartLng,
+      nodeA.latitude,
+      nodeA.longitude,
+      nodeB.latitude,
+      nodeB.longitude
+    );
+
+    if (bestStartProj === null || proj.distance < bestStartProj.distance) {
+      bestStartProj = proj;
+      bestStartEdge = edge;
+    }
+  }
+
+  // Determine if we should snap start to edge
+  const closestStartNodeDist = getDistance(actualStartLat, actualStartLng, closestStartNode.latitude, closestStartNode.longitude);
+  const shouldSnapStart = bestStartProj && bestStartEdge && (bestStartProj.distance < closestStartNodeDist);
+
+  // 5. End Snap: Find closest edge to target coordinates
+  let bestEndProj: { latitude: number; longitude: number; distance: number } | null = null;
+  let bestEndEdge: NavigationEdge | null = null;
+
+  for (const edge of edges) {
+    const nodeA = nodes.find((n) => n.id === edge.from_node_id);
+    const nodeB = nodes.find((n) => n.id === edge.to_node_id);
+    if (!nodeA || !nodeB) continue;
+
+    const floorA = nodeA.floor || null;
+    const floorB = nodeB.floor || null;
+    if (floorA !== endFloor || floorB !== endFloor) continue;
+
+    const proj = projectPointToSegment(
+      endLat,
+      endLng,
+      nodeA.latitude,
+      nodeA.longitude,
+      nodeB.latitude,
+      nodeB.longitude
+    );
+
+    if (bestEndProj === null || proj.distance < bestEndProj.distance) {
+      bestEndProj = proj;
+      bestEndEdge = edge;
+    }
+  }
+
+  // Determine if we should snap destination to edge
+  // Find closest connected node to endNode (other than endNode itself)
+  const connectedNodeIds = new Set<string>();
+  edges.forEach((edge) => {
+    if (edge.from_node_id === endNode.id) connectedNodeIds.add(edge.to_node_id);
+    if (edge.to_node_id === endNode.id && edge.is_bidirectional) connectedNodeIds.add(edge.from_node_id);
+  });
+
+  let minExistingDist = Infinity;
+  connectedNodeIds.forEach((id) => {
+    const neighbor = nodes.find((n) => n.id === id);
+    if (neighbor) {
+      const dist = getDistance(endLat, endLng, neighbor.latitude, neighbor.longitude);
+      if (dist < minExistingDist) minExistingDist = dist;
+    }
+  });
+
+  const otherNodes = nodes.filter((n) => n.id !== endNode.id);
+  const closestEndNode = findClosestNode(endLat, endLng, otherNodes);
+  const distToClosestEndNode = closestEndNode ? getDistance(endLat, endLng, closestEndNode.latitude, closestEndNode.longitude) : Infinity;
+
+  // We should snap to edge if the edge projection is closer to the target than existing nodes/connections
+  const shouldSnapEnd = endNode.type !== 'path' && bestEndProj && bestEndEdge && (bestEndProj.distance < Math.min(minExistingDist, distToClosestEndNode * 1.25));
+
+  // 6. Snapping injection decisions
+  let finalStartId = closestStartNode.id;
+  let finalEndId = endNode.id;
+
+  const snapStart = shouldSnapStart && bestStartProj && bestStartEdge;
+  const snapEnd = shouldSnapEnd && bestEndProj && bestEndEdge;
+
+  if (snapStart && snapEnd && bestStartEdge!.id === bestEndEdge!.id) {
+    // Both snap to the same edge! Perform a 3-way split (A <-> V_start <-> V_end <-> B)
+    finalStartId = 'snapped-start-virtual';
+    finalEndId = 'snapped-end-virtual';
+
+    tempNodes.push({
+      id: finalStartId,
+      label: 'Your Location',
+      latitude: bestStartProj.latitude,
+      longitude: bestStartProj.longitude,
+      floor: startFloor,
+      type: 'poi',
+      store_id: null,
+      created_at: new Date().toISOString()
+    });
+
+    tempNodes.push({
+      id: finalEndId,
+      label: 'Snapped End Point',
+      latitude: bestEndProj.latitude,
+      longitude: bestEndProj.longitude,
+      floor: endFloor,
+      type: 'poi',
+      store_id: null,
+      created_at: new Date().toISOString()
+    });
+
+    // Remove the original split edge to prevent shortcut detours
+    tempEdges = tempEdges.filter((e) => e.id !== bestStartEdge!.id);
+
+    const nodeA = nodes.find((n) => n.id === bestStartEdge!.from_node_id)!;
+    const nodeB = nodes.find((n) => n.id === bestStartEdge!.to_node_id)!;
+
+    const dStart = getDistance(nodeA.latitude, nodeA.longitude, bestStartProj.latitude, bestStartProj.longitude);
+    const dEnd = getDistance(nodeA.latitude, nodeA.longitude, bestEndProj.latitude, bestEndProj.longitude);
+
+    if (dStart <= dEnd) {
+      // Order of nodes along segment: A -> V_start -> V_end -> B
+      const dStartToEnd = getDistance(bestStartProj.latitude, bestStartProj.longitude, bestEndProj.latitude, bestEndProj.longitude);
+      const dEndToB = getDistance(bestEndProj.latitude, bestEndProj.longitude, nodeB.latitude, nodeB.longitude);
+
+      tempEdges.push({
+        id: 'virtual-start-edge-a',
+        from_node_id: finalStartId,
+        to_node_id: nodeA.id,
+        distance: dStart,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges.push({
+        id: 'virtual-same-edge-middle',
+        from_node_id: finalStartId,
+        to_node_id: finalEndId,
+        distance: dStartToEnd,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges.push({
+        id: 'virtual-end-edge-b',
+        from_node_id: finalEndId,
+        to_node_id: nodeB.id,
+        distance: dEndToB,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+    } else {
+      // Order of nodes along segment: A -> V_end -> V_start -> B
+      const dEndToStart = getDistance(bestEndProj.latitude, bestEndProj.longitude, bestStartProj.latitude, bestStartProj.longitude);
+      const dStartToB = getDistance(bestStartProj.latitude, bestStartProj.longitude, nodeB.latitude, nodeB.longitude);
+
+      tempEdges.push({
+        id: 'virtual-end-edge-a',
+        from_node_id: finalEndId,
+        to_node_id: nodeA.id,
+        distance: dEnd,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges.push({
+        id: 'virtual-same-edge-middle',
+        from_node_id: finalEndId,
+        to_node_id: finalStartId,
+        distance: dEndToStart,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges.push({
+        id: 'virtual-start-edge-b',
+        from_node_id: finalStartId,
+        to_node_id: nodeB.id,
+        distance: dStartToB,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+    }
+  } else {
+    // Handle start snap and end snap independently (splits on different segments)
+    if (snapStart) {
+      finalStartId = 'snapped-start-virtual';
+      tempNodes.push({
+        id: finalStartId,
+        label: 'Your Location',
+        latitude: bestStartProj.latitude,
+        longitude: bestStartProj.longitude,
+        floor: startFloor,
+        type: 'poi',
+        store_id: null,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges = tempEdges.filter((e) => e.id !== bestStartEdge!.id);
+
+      const targetNodeA = nodes.find((n) => n.id === bestStartEdge!.from_node_id)!;
+      const targetNodeB = nodes.find((n) => n.id === bestStartEdge!.to_node_id)!;
+      const distToA = getDistance(bestStartProj.latitude, bestStartProj.longitude, targetNodeA.latitude, targetNodeA.longitude);
+      const distToB = getDistance(bestStartProj.latitude, bestStartProj.longitude, targetNodeB.latitude, targetNodeB.longitude);
+
+      tempEdges.push({
+        id: 'virtual-start-edge-a',
+        from_node_id: finalStartId,
+        to_node_id: bestStartEdge!.from_node_id,
+        distance: distToA,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges.push({
+        id: 'virtual-start-edge-b',
+        from_node_id: finalStartId,
+        to_node_id: bestStartEdge!.to_node_id,
+        distance: distToB,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+    }
+
+    if (snapEnd) {
+      finalEndId = 'snapped-end-virtual';
+      tempNodes.push({
+        id: finalEndId,
+        label: 'Snapped End Point',
+        latitude: bestEndProj!.latitude,
+        longitude: bestEndProj!.longitude,
+        floor: endFloor,
+        type: 'poi',
+        store_id: null,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges = tempEdges.filter((e) => e.id !== bestEndEdge!.id);
+
+      const targetNodeA = nodes.find((n) => n.id === bestEndEdge!.from_node_id)!;
+      const targetNodeB = nodes.find((n) => n.id === bestEndEdge!.to_node_id)!;
+      const distToA = getDistance(bestEndProj!.latitude, bestEndProj!.longitude, targetNodeA.latitude, targetNodeA.longitude);
+      const distToB = getDistance(bestEndProj!.latitude, bestEndProj!.longitude, targetNodeB.latitude, targetNodeB.longitude);
+
+      tempEdges.push({
+        id: 'virtual-end-edge-a',
+        from_node_id: finalEndId,
+        to_node_id: bestEndEdge!.from_node_id,
+        distance: distToA,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+
+      tempEdges.push({
+        id: 'virtual-end-edge-b',
+        from_node_id: finalEndId,
+        to_node_id: bestEndEdge!.to_node_id,
+        distance: distToB,
+        is_bidirectional: true,
+        created_at: new Date().toISOString()
+      });
+    }
+  }
+
+  // 6. Run Dijkstra from start identifier to destination identifier
+  return calculateShortestPath(finalStartId, finalEndId, tempNodes, tempEdges);
+}
+
+/**
  * Geographically locate the nearest node to an arbitrary lat/lng coordinate.
  */
 export function findClosestNode(
