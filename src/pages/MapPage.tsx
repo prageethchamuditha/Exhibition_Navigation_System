@@ -19,6 +19,7 @@ import {
   type NavigationEdge,
 } from '../lib/supabase';
 import { MapView } from '../components/MapView';
+import { MapView3D } from '../components/MapView3D';
 import { calculateShortestPath, calculateShortestPathWithSnapping, findClosestNode, getDistance, getHeading } from '../utils/dijkstra';
 import { logAnalyticsEvent } from '../lib/analytics';
 
@@ -71,7 +72,7 @@ export function MapPage() {
   const [totalDistance, setTotalDistance] = useState(0); // in meters
   const [guideSteps, setGuideSteps] = useState<string[]>([]);
   const [navigationActive, setNavigationActive] = useState(false);
-  const [mapTheme, setMapTheme] = useState<'dark' | 'streets' | 'light'>('light');
+  const [mapTheme, setMapTheme] = useState<'dark' | 'streets' | 'light' | '3d'>('light');
   const [showMesh, setShowMesh] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
 
@@ -636,18 +637,32 @@ export function MapPage() {
 
         {/* Full Screen Map Canvas Container */}
         <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative' }}>
-          <MapView
-            latitude={mapCenterLat}
-            longitude={mapCenterLng}
-            stores={stores}
-            userLat={mockMode ? null : userLat}
-            userLng={mockMode ? null : userLng}
-            route={calculatedRoute}
-            theme={mapTheme}
-            showGraphMesh={showMesh}
-            nodes={nodes}
-            edges={edges}
-          />
+          {mapTheme === '3d' ? (
+            <MapView3D
+              latitude={mapCenterLat}
+              longitude={mapCenterLng}
+              stores={stores}
+              userLat={mockMode ? null : userLat}
+              userLng={mockMode ? null : userLng}
+              route={calculatedRoute}
+              showGraphMesh={showMesh}
+              nodes={nodes}
+              edges={edges}
+            />
+          ) : (
+            <MapView
+              latitude={mapCenterLat}
+              longitude={mapCenterLng}
+              stores={stores}
+              userLat={mockMode ? null : userLat}
+              userLng={mockMode ? null : userLng}
+              route={calculatedRoute}
+              theme={mapTheme as 'dark' | 'streets' | 'light'}
+              showGraphMesh={showMesh}
+              nodes={nodes}
+              edges={edges}
+            />
+          )}
 
           {/* Floating Recenter Location Button */}
           <button
@@ -855,6 +870,7 @@ export function MapPage() {
                 <option value="dark">Dark Matter</option>
                 <option value="streets">OSM Streets</option>
                 <option value="light">Positron Light</option>
+                <option value="3d">🏙️ 3D Buildings</option>
               </select>
             </div>
 
