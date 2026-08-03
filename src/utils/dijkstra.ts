@@ -216,19 +216,22 @@ export function calculateShortestPathWithSnapping(
   let finalStartId = closestStartNode.id;
   let finalEndId = endNode.id;
 
-  const snapStart = shouldSnapStart && bestStartProj && bestStartEdge;
-  const snapEnd = shouldSnapEnd && bestEndProj && bestEndEdge;
+  const snapStart = Boolean(shouldSnapStart && bestStartProj && bestStartEdge);
+  const snapEnd = Boolean(shouldSnapEnd && bestEndProj && bestEndEdge);
 
   if (snapStart && snapEnd && bestStartEdge!.id === bestEndEdge!.id) {
     // Both snap to the same edge! Perform a 3-way split (A <-> V_start <-> V_end <-> B)
     finalStartId = 'snapped-start-virtual';
     finalEndId = 'snapped-end-virtual';
 
+    const startProj = bestStartProj!;
+    const endProj = bestEndProj!;
+
     tempNodes.push({
       id: finalStartId,
       label: 'Your Location',
-      latitude: bestStartProj.latitude,
-      longitude: bestStartProj.longitude,
+      latitude: startProj.latitude,
+      longitude: startProj.longitude,
       floor: startFloor,
       type: 'poi',
       store_id: null,
@@ -238,8 +241,8 @@ export function calculateShortestPathWithSnapping(
     tempNodes.push({
       id: finalEndId,
       label: 'Snapped End Point',
-      latitude: bestEndProj.latitude,
-      longitude: bestEndProj.longitude,
+      latitude: endProj.latitude,
+      longitude: endProj.longitude,
       floor: endFloor,
       type: 'poi',
       store_id: null,
@@ -252,13 +255,13 @@ export function calculateShortestPathWithSnapping(
     const nodeA = nodes.find((n) => n.id === bestStartEdge!.from_node_id)!;
     const nodeB = nodes.find((n) => n.id === bestStartEdge!.to_node_id)!;
 
-    const dStart = getDistance(nodeA.latitude, nodeA.longitude, bestStartProj.latitude, bestStartProj.longitude);
-    const dEnd = getDistance(nodeA.latitude, nodeA.longitude, bestEndProj.latitude, bestEndProj.longitude);
+    const dStart = getDistance(nodeA.latitude, nodeA.longitude, startProj.latitude, startProj.longitude);
+    const dEnd = getDistance(nodeA.latitude, nodeA.longitude, endProj.latitude, endProj.longitude);
 
     if (dStart <= dEnd) {
       // Order of nodes along segment: A -> V_start -> V_end -> B
-      const dStartToEnd = getDistance(bestStartProj.latitude, bestStartProj.longitude, bestEndProj.latitude, bestEndProj.longitude);
-      const dEndToB = getDistance(bestEndProj.latitude, bestEndProj.longitude, nodeB.latitude, nodeB.longitude);
+      const dStartToEnd = getDistance(startProj.latitude, startProj.longitude, endProj.latitude, endProj.longitude);
+      const dEndToB = getDistance(endProj.latitude, endProj.longitude, nodeB.latitude, nodeB.longitude);
 
       tempEdges.push({
         id: 'virtual-start-edge-a',
@@ -288,8 +291,8 @@ export function calculateShortestPathWithSnapping(
       });
     } else {
       // Order of nodes along segment: A -> V_end -> V_start -> B
-      const dEndToStart = getDistance(bestEndProj.latitude, bestEndProj.longitude, bestStartProj.latitude, bestStartProj.longitude);
-      const dStartToB = getDistance(bestStartProj.latitude, bestStartProj.longitude, nodeB.latitude, nodeB.longitude);
+      const dEndToStart = getDistance(endProj.latitude, endProj.longitude, startProj.latitude, startProj.longitude);
+      const dStartToB = getDistance(startProj.latitude, startProj.longitude, nodeB.latitude, nodeB.longitude);
 
       tempEdges.push({
         id: 'virtual-end-edge-a',
@@ -322,11 +325,12 @@ export function calculateShortestPathWithSnapping(
     // Handle start snap and end snap independently (splits on different segments)
     if (snapStart) {
       finalStartId = 'snapped-start-virtual';
+      const startProj = bestStartProj!;
       tempNodes.push({
         id: finalStartId,
         label: 'Your Location',
-        latitude: bestStartProj.latitude,
-        longitude: bestStartProj.longitude,
+        latitude: startProj.latitude,
+        longitude: startProj.longitude,
         floor: startFloor,
         type: 'poi',
         store_id: null,
@@ -337,8 +341,8 @@ export function calculateShortestPathWithSnapping(
 
       const targetNodeA = nodes.find((n) => n.id === bestStartEdge!.from_node_id)!;
       const targetNodeB = nodes.find((n) => n.id === bestStartEdge!.to_node_id)!;
-      const distToA = getDistance(bestStartProj.latitude, bestStartProj.longitude, targetNodeA.latitude, targetNodeA.longitude);
-      const distToB = getDistance(bestStartProj.latitude, bestStartProj.longitude, targetNodeB.latitude, targetNodeB.longitude);
+      const distToA = getDistance(startProj.latitude, startProj.longitude, targetNodeA.latitude, targetNodeA.longitude);
+      const distToB = getDistance(startProj.latitude, startProj.longitude, targetNodeB.latitude, targetNodeB.longitude);
 
       tempEdges.push({
         id: 'virtual-start-edge-a',

@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// MapLibre GL v6 + Vite: worker URL must be set explicitly so the bundler
+// can correctly resolve the worker module. Without this the web worker
+// silently fails to load and the map `load` event never fires.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { ArrowLeft, Layers, RotateCcw, ZoomIn, ZoomOut, Building2, Navigation } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase, type Store } from '../lib/supabase';
+
+// Register the worker URL before any Map instance is created
+maplibregl.setWorkerUrl(workerUrl as unknown as string);
 
 // University of Moratuwa — center coordinates [lng, lat]
 const UOM_CENTER: [number, number] = [79.9003, 6.7967];
@@ -47,13 +54,17 @@ export function Map3DPage() {
       zoom: UOM_ZOOM,
       pitch: UOM_PITCH,
       bearing: UOM_BEARING,
-      antialias: true,
     });
 
     map.current = m;
 
     // Compass + zoom controls
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+
+    // Surface any map errors to the console for debugging
+    m.on('error', (e) => {
+      console.error('[MapLibre error]', e);
+    });
 
     m.on('load', () => {
       setMapLoaded(true);
@@ -65,34 +76,72 @@ export function Map3DPage() {
       if (m.getLayer('water')) {
         m.setPaintProperty('water', 'fill-color', '#0a1628');
       }
-      ['road_minor', 'road_secondary_tertiary', 'road_trunk_primary', 'road_motorway'].forEach((id) => {
+      // Positron style road layer IDs
+      ['highway_minor', 'highway_major_inner', 'highway_major_casing', 'highway_motorway_inner', 'highway_motorway_casing'].forEach((id) => {
         if (m.getLayer(id)) m.setPaintProperty(id, 'line-color', '#1e2a3a');
       });
 
-      // ── Recolour the existing building-3d layer ───────────────
-      if (m.getLayer('building-3d')) {
-        m.setPaintProperty('building-3d', 'fill-extrusion-color', '#16213e');
-        m.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.9);
-      }
+      // ── Darken the 2-D building footprint layer ───────────────
+      // (The positron style only ships a flat 'building' fill layer —
+      //  there is NO built-in 'building-3d' extrusion layer.)
       if (m.getLayer('building')) {
         m.setPaintProperty('building', 'fill-color', '#1a2035');
         m.setPaintProperty('building', 'fill-outline-color', '#0f3460');
       }
 
+      // ── Add custom 3-D building extrusion layer ───────────────
+      // We create our own fill-extrusion on top of the openmaptiles
+      // 'building' source-layer since the positron style doesn't include one.
+      if (!m.getLayer('custom-buildings-3d')) {
+        m.addLayer({
+          id: 'custom-buildings-3d',
+          type: 'fill-extrusion',
+          source: 'openmaptiles',
+          'source-layer': 'building',
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-color': '#16213e',
+            'fill-extrusion-height': [
+              'interpolate', ['linear'], ['zoom'],
+              14, 0,
+              15, ['coalesce', ['get', 'render_height'], 8],
+            ],
+            'fill-extrusion-base': [
+              'interpolate', ['linear'], ['zoom'],
+              14, 0,
+              15, ['coalesce', ['get', 'render_min_height'], 0],
+            ],
+            'fill-extrusion-opacity': 0.9,
+          },
+        });
+      }
+
       // ── Purple roof highlight (thin layer on top of buildings) ─
-      m.addLayer({
-        id: 'uom-buildings-roof',
-        type: 'fill-extrusion',
-        source: 'openmaptiles',
-        'source-layer': 'building',
-        minzoom: 14,
-        paint: {
-          'fill-extrusion-color': '#6366f1',
-          'fill-extrusion-height': ['+', ['coalesce', ['get', 'render_height'], 8], 0.5],
-          'fill-extrusion-base': ['coalesce', ['get', 'render_height'], 8],
-          'fill-extrusion-opacity': 0.6,
-        },
-      });
+      if (!m.getLayer('custom-buildings-roof')) {
+        m.addLayer({
+          id: 'custom-buildings-roof',
+          type: 'fill-extrusion',
+          source: 'openmaptiles',
+          'source-layer': 'building',
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-color': '#6366f1',
+            'fill-extrusion-height': [
+              '+',
+              ['interpolate', ['linear'], ['zoom'],
+                14, 0,
+                15, ['coalesce', ['get', 'render_height'], 8]],
+              0.5,
+            ],
+            'fill-extrusion-base': [
+              'interpolate', ['linear'], ['zoom'],
+              14, 0,
+              15, ['coalesce', ['get', 'render_height'], 8],
+            ],
+            'fill-extrusion-opacity': 0.55,
+          },
+        });
+      }
 
       // ── UoM campus boundary polygon ───────────────────────────
       m.addSource('uom-campus', {

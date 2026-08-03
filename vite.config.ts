@@ -19,6 +19,13 @@ export default defineConfig({
       },
     },
   ],
+  // Exclude the MapLibre GL worker from Vite's dep pre-bundler so that the
+  // ?worker&url import in Map3DPage.tsx goes through Vite's worker pipeline
+  // rather than the optimizer (which would strip the ?worker query and break
+  // the worker URL resolution, causing the map `load` event to never fire).
+  optimizeDeps: {
+    exclude: ['maplibre-gl'],
+  },
   build: {
     rollupOptions: {
       input: {

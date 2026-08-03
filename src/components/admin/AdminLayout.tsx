@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MapPin,
   LayoutDashboard,
@@ -40,7 +40,6 @@ const NAV_ITEMS: NavItem[] = [
 export function AdminLayout({ children }: { children: ReactNode }) {
   const { signOut, profile } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
