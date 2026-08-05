@@ -2713,3 +2713,8 @@ html, body, #root {
   .map-topbar { padding-top: 0.5rem !important; }
   .map-search-panel { max-height: 80vw !important; bottom: 0 !important; }
 }
+
+/* ── Smooth Leaflet User Marker Transitions ─────────── */
+.user-map-pin {
+  transition: transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}

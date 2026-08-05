@@ -30,7 +30,7 @@ export class GPSKalmanFilter {
    * @param minAccuracy Minimum GPS accuracy constraint to prevent over-trusting bad readings.
    * @param r Measurement noise scale factor.
    */
-  constructor(q = 0.5, deadZoneThreshold = 0.6, minAccuracy = 1.0, r = 0.08) {
+  constructor(q = 0.8, deadZoneThreshold = 1.8, minAccuracy = 1.0, r = 1.0) {
     this.q = q;
     this.deadZoneThreshold = deadZoneThreshold;
     this.minAccuracy = minAccuracy;
@@ -63,7 +63,7 @@ export class GPSKalmanFilter {
     accuracy: number | null,
     timestamp: number = Date.now()
   ): { lat: number; lng: number } {
-    const rawAccuracy = accuracy !== null ? accuracy : 10.0;
+    const rawAccuracy = accuracy !== null ? accuracy : 15.0;
     const currentAccuracy = Math.max(rawAccuracy, this.minAccuracy);
 
     // 1. Initialize on the very first coordinate reading
@@ -77,13 +77,39 @@ export class GPSKalmanFilter {
       return { lat: newLat, lng: newLng };
     }
 
+    // Calculate raw distance from the last stable coordinate to determine user movement state
+    const rawDistFromStable = getDistance(this.lastStableLat!, this.lastStableLng!, newLat, newLng);
+
+    // Dynamic Parameter Adaptation:
+    // If the user moves away from their last stable point (> 3.5 meters), we assume they are moving.
+    // We increase process noise (Q) to 2.5 (very high responsiveness) and decrease the dead-zone
+    // threshold to 0.4 meters (almost instant updates).
+    // If the user stays near their last stable point (< 2.0 meters), we assume they are static.
+    // We decrease process noise (Q) to 0.08 (strict filtering) and increase the dead-zone
+    // threshold to 1.8 meters to completely lock position jitter.
+    let activeQ = this.q;
+    let activeDeadZone = this.deadZoneThreshold;
+
+    if (rawDistFromStable > 3.5) {
+      activeQ = 2.5;
+      activeDeadZone = 0.4;
+    } else if (rawDistFromStable < 2.0) {
+      activeQ = 0.08;
+      activeDeadZone = 1.8;
+    } else {
+      // Linear interpolation between the two states
+      const t = (rawDistFromStable - 2.0) / 1.5;
+      activeQ = 0.08 + t * (2.5 - 0.08);
+      activeDeadZone = 1.8 - t * (1.8 - 0.4);
+    }
+
     // 2. Calculate time duration (seconds) since last update
     const duration = (timestamp - this.lastTimestamp) / 1000.0;
     this.lastTimestamp = timestamp;
 
-    // 3. Prediction step (variance increases over time due to process noise)
+    // 3. Prediction step (variance increases over time due to activeQ)
     if (duration > 0) {
-      this.variance += duration * this.q * this.q;
+      this.variance += duration * activeQ * activeQ;
     }
 
     // 4. Update / Correction step
@@ -102,9 +128,9 @@ export class GPSKalmanFilter {
     this.lat = filteredLat;
     this.lng = filteredLng;
 
-    // 5. Apply Dead-Zone Thresholding
+    // 5. Apply Dynamic Dead-Zone Thresholding
     const dist = getDistance(this.lastStableLat!, this.lastStableLng!, filteredLat, filteredLng);
-    if (dist >= this.deadZoneThreshold) {
+    if (dist >= activeDeadZone) {
       this.lastStableLat = filteredLat;
       this.lastStableLng = filteredLng;
     }

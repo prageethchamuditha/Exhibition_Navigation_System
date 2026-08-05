@@ -60,7 +60,7 @@ export function MapPage() {
   const [mockMode, setMockMode] = useState(false);
 
   // Kalman Filter for coordinates smoothing
-  const filterRef = useRef(new GPSKalmanFilter());
+  const filterRef = useRef(new GPSKalmanFilter(0.8, 1.8));
 
   // When GPS accuracy is worse than this threshold (metres), we snap the
   // route start to the nearest entrance node instead of trusting raw GPS.
