@@ -20,8 +20,17 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   signInAnonymously: () => Promise<void>;
+  clearVisitorSession: () => Promise<void>;
   updateProfile: (data: Partial<Pick<Profile, 'name' | 'phone'>>) => Promise<void>;
   refreshProfile: () => Promise<void>;
+}
+
+// Key used to persist anonymous visitor tokens in the browser cache
+const VISITOR_SESSION_KEY = 'exnav_visitor_session';
+
+interface CachedVisitorSession {
+  access_token: string;
+  refresh_token: string;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -67,13 +76,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!active) return;
-        
-        setSession(session);
-        setUser(session?.user ?? null);
-        
+
         if (session?.user) {
+          // ── Active Supabase session found — use it directly ──────────────────
+          setSession(session);
+          setUser(session.user);
           currentUserId = session.user.id;
           await fetchProfile(session.user.id);
+        } else {
+          // ── No live session — try to silently restore from visitor cache ──────
+          const raw = localStorage.getItem(VISITOR_SESSION_KEY);
+          if (raw) {
+            try {
+              const cached: CachedVisitorSession = JSON.parse(raw);
+              const { data: restored, error: restoreErr } = await supabase.auth.setSession({
+                access_token: cached.access_token,
+                refresh_token: cached.refresh_token,
+              });
+
+              if (!restoreErr && restored?.session) {
+                // Cache is valid — update with fresh tokens and set state
+                localStorage.setItem(
+                  VISITOR_SESSION_KEY,
+                  JSON.stringify({
+                    access_token: restored.session.access_token,
+                    refresh_token: restored.session.refresh_token,
+                  } satisfies CachedVisitorSession),
+                );
+                if (!active) return;
+                setSession(restored.session);
+                setUser(restored.session.user);
+                currentUserId = restored.session.user.id;
+                await fetchProfile(restored.session.user.id);
+              } else {
+                // Cache is stale (user may have been cleaned up) — clear it
+                localStorage.removeItem(VISITOR_SESSION_KEY);
+                if (!active) return;
+                setSession(null);
+                setUser(null);
+              }
+            } catch {
+              localStorage.removeItem(VISITOR_SESSION_KEY);
+              if (!active) return;
+              setSession(null);
+              setUser(null);
+            }
+          } else {
+            if (!active) return;
+            setSession(null);
+            setUser(null);
+          }
         }
       } catch (err) {
         console.error('Error bootstrapping auth:', err);
@@ -93,6 +145,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         
+        // Keep the localStorage cache fresh whenever Supabase auto-refreshes the JWT
+        if (session && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN')) {
+          const isAnon = session.user?.is_anonymous ?? false;
+          if (isAnon) {
+            localStorage.setItem(
+              VISITOR_SESSION_KEY,
+              JSON.stringify({
+                access_token: session.access_token,
+                refresh_token: session.refresh_token,
+              }),
+            );
+          }
+        }
+
         if (newUserId) {
           const isUserChanged = newUserId !== currentUserId;
           const needsFetch = isUserChanged || event === 'SIGNED_IN' || event === 'USER_UPDATED';
@@ -158,14 +224,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
+    // For anonymous visitors use a LOCAL sign-out only — this clears the local
+    // Supabase state without invalidating the server-side refresh_token.
+    // That way our exnav_visitor_session cache remains valid and the visitor
+    // is silently restored to the SAME account on their next visit.
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+    const isAnon = currentSession?.user?.is_anonymous ?? false;
+
+    const { error } = await supabase.auth.signOut(
+      isAnon ? { scope: 'local' } : undefined
+    );
     if (error) throw new Error(error.message || 'Failed to sign out');
     setProfile(null);
   };
 
   const signInAnonymously = async () => {
-    const { error } = await supabase.auth.signInAnonymously();
+    // ── Step 0: Guard — bail out if there's already a live session ────────────
+    const { data: { session: existing } } = await supabase.auth.getSession();
+    if (existing?.user) {
+      // Already authenticated (session restored by bootstrap) — nothing to do
+      return;
+    }
+
+    // ── Step 1: Try to restore an existing cached visitor session ──────────────
+    const raw = localStorage.getItem(VISITOR_SESSION_KEY);
+    if (raw) {
+      try {
+        const cached: CachedVisitorSession = JSON.parse(raw);
+        const { data, error } = await supabase.auth.setSession({
+          access_token: cached.access_token,
+          refresh_token: cached.refresh_token,
+        });
+
+        if (!error && data?.session) {
+          // Existing anonymous identity restored — update cache with refreshed tokens
+          localStorage.setItem(
+            VISITOR_SESSION_KEY,
+            JSON.stringify({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token,
+            } satisfies CachedVisitorSession),
+          );
+          return; // ✅ Reused old account, no new DB row created
+        }
+
+        // Cached tokens are invalid/expired — fall through to create a new session
+        console.warn('Cached visitor session expired or invalid, creating a new one.');
+        localStorage.removeItem(VISITOR_SESSION_KEY);
+      } catch {
+        // Malformed JSON — clear and create a fresh session
+        localStorage.removeItem(VISITOR_SESSION_KEY);
+      }
+    }
+
+    // ── Step 2: First visit (or cache cleared) — create a brand-new anonymous user ──
+    const { data, error } = await supabase.auth.signInAnonymously();
     if (error) throw new Error(error.message || 'Failed to sign in anonymously');
+
+    // ── Step 3: Persist the tokens so next visit reuses this identity ──────────
+    if (data?.session) {
+      localStorage.setItem(
+        VISITOR_SESSION_KEY,
+        JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        } satisfies CachedVisitorSession),
+      );
+    } else {
+      // signInAnonymously succeeded but returned no session object —
+      // Supabase may have email-confirmation required. Log a warning.
+      console.warn(
+        'signInAnonymously returned no session. ' +
+        'Ensure Anonymous Sign-ins are enabled in your Supabase Auth settings.'
+      );
+    }
+  };
+
+  // Wipe the cached visitor session and sign out (useful for a "Reset Identity" feature)
+  const clearVisitorSession = async () => {
+    localStorage.removeItem(VISITOR_SESSION_KEY);
+    const { error } = await supabase.auth.signOut();
+    if (error) throw new Error(error.message || 'Failed to sign out');
+    setProfile(null);
   };
 
   const updateProfile = async (data: Partial<Pick<Profile, 'name' | 'phone'>>) => {
@@ -218,6 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         signInAnonymously,
+        clearVisitorSession,
         updateProfile,
         refreshProfile,
       }}

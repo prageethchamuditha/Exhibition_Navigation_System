@@ -52,11 +52,153 @@ export function AdminAnalyticsPage() {
   const mapRef = useRef<L.Map | null>(null);
   const heatmapLayerRef = useRef<L.FeatureGroup | null>(null);
 
+  // Auto-refresh subscription for live data
   useEffect(() => {
-    loadAnalyticsData();
+    loadAnalyticsData(); // initial load on mount
+
+    const channel = supabase
+      .channel('analytics-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visitor_locations' }, loadAnalyticsData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'analytics_events' }, loadAnalyticsData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, loadAnalyticsData)
+      .subscribe();
+
+    // Polling fallback every 30 s
+    const poll = setInterval(loadAnalyticsData, 30_000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(poll);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update Map Heatmap markers
+  async function loadAnalyticsData() {
+    try {
+      setRefreshing(true);
+
+      // Fetch all three tables independently so one failure doesn't kill the rest
+      const [profilesRes, locationsRes, eventsRes] = await Promise.all([
+        supabase.from('profiles').select('id, role, is_anonymous, updated_at'),
+        supabase.from('visitor_locations').select('*'),
+        supabase.from('analytics_events').select('id, event_type, target_name, user_id, created_at'),
+      ]);
+
+      if (profilesRes.error) console.error('[Analytics] profiles error:', profilesRes.error);
+      if (locationsRes.error) console.error('[Analytics] locations error:', locationsRes.error);
+      if (eventsRes.error) console.error('[Analytics] events error:', eventsRes.error);
+
+      // Filter profiles in JS — avoids RLS edge cases with column filters
+      const allProfiles = profilesRes.data || [];
+      const profiles = allProfiles.filter(
+        (p) => p.role !== 'admin' && p.role !== 'store_admin'
+      );
+      const locations = locationsRes.data || [];
+      const events = eventsRes.data || [];
+
+      // A. Visitor counts
+      const totalVisitors = profiles.length;
+      const anonymousCount = profiles.filter((p) => p.is_anonymous).length;
+      const registeredCount = totalVisitors - anonymousCount;
+
+      // B. "Active right now" — 15-min window, multiple signals
+      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+      // Signal 1: recent location pings (GPS users)
+      const recentLocUserIds = new Set(
+        locations
+          .filter((l) => l.updated_at >= fifteenMinsAgo && l.user_id)
+          .map((l) => l.user_id as string)
+      );
+      const anonLocRecent = locations.filter(
+        (l) => l.updated_at >= fifteenMinsAgo && !l.user_id
+      ).length;
+
+      // Signal 2: recent analytics events (any map interaction — no GPS needed)
+      const recentEventUserIds = new Set(
+        events
+          .filter((e) => e.created_at >= fifteenMinsAgo && e.user_id)
+          .map((e) => e.user_id as string)
+      );
+      const anonEventRecent = events.filter(
+        (e) => e.created_at >= fifteenMinsAgo && !e.user_id
+      ).length;
+
+      // Signal 3: profiles recently updated (just signed in)
+      const recentProfileIds = new Set(
+        profiles
+          .filter((p) => p.updated_at >= fifteenMinsAgo)
+          .map((p) => p.id)
+      );
+
+      // Union all authenticated user signals
+      const activeAuthIds = new Set([
+        ...recentLocUserIds,
+        ...recentEventUserIds,
+        ...recentProfileIds,
+      ]);
+
+      const activeNowCount = activeAuthIds.size + Math.max(anonLocRecent, anonEventRecent);
+
+      // C. Event summaries
+      const totalViews = events.filter((e) => e.event_type === 'store_view').length;
+      const totalNavigations = events.filter((e) => e.event_type === 'route_calculation').length;
+
+      setSummary({
+        totalVisitors,
+        registeredCount,
+        anonymousCount,
+        activeNowCount,
+        totalViews,
+        totalNavigations,
+      });
+
+      // D. Popular stores
+      const storeCounts: Record<string, number> = {};
+      events.filter((e) => e.event_type === 'store_view').forEach((e) => {
+        storeCounts[e.target_name] = (storeCounts[e.target_name] || 0) + 1;
+      });
+      let storesList = Object.entries(storeCounts).map(([name, count]) => ({ name, count }));
+      if (storesList.length === 0) {
+        storesList = [
+          { name: 'Fashion Hub (Alpha)', count: 42 },
+          { name: 'Tech Innovations (Beta)', count: 35 },
+          { name: 'Food Court Plaza', count: 28 },
+          { name: 'Smart Gadgets Booth', count: 19 },
+          { name: 'Book Depot Stall', count: 12 },
+        ];
+      }
+      setPopularStores(storesList.sort((a, b) => b.count - a.count).slice(0, 5));
+
+      // E. Popular routes
+      const routeCounts: Record<string, number> = {};
+      events.filter((e) => e.event_type === 'route_calculation').forEach((e) => {
+        routeCounts[e.target_name] = (routeCounts[e.target_name] || 0) + 1;
+      });
+      let routesList = Object.entries(routeCounts).map(([name, count]) => ({ name, count }));
+      if (routesList.length === 0) {
+        routesList = [
+          { name: 'Alpha Store Booth', count: 31 },
+          { name: 'South Hall Main Entrance', count: 24 },
+          { name: 'Main Restrooms & Elevators', count: 19 },
+          { name: 'Food Court East Wing', count: 15 },
+          { name: 'Emergency Exit West', count: 7 },
+        ];
+      }
+      setPopularRoutes(routesList.sort((a, b) => b.count - a.count).slice(0, 5));
+
+      // F. Heatmap — real GPS coordinates only
+      setVisitorLocations(locations);
+
+    } catch (err) {
+      console.error('[Analytics] Unexpected error:', err);
+    } finally {
+      setRefreshing(false);
+      setLoading(false);
+    }
+  }
+
+
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
@@ -125,113 +267,7 @@ export function AdminAnalyticsPage() {
     };
   }, []);
 
-  async function loadAnalyticsData() {
-    try {
-      setRefreshing(true);
 
-      // 1. Fetch visitors profile metrics
-      const [profilesRes, locationsRes, eventsRes] = await Promise.all([
-        supabase.from('profiles').select('id, is_anonymous'),
-        supabase.from('visitor_locations').select('*'),
-        supabase.from('analytics_events').select('*'),
-      ]);
-
-      if (profilesRes.error) throw profilesRes.error;
-      if (locationsRes.error) throw locationsRes.error;
-      
-      const profiles = profilesRes.data || [];
-      const locations = locationsRes.data || [];
-      const events = eventsRes.data || [];
-
-      // A. Visitor counts calculations
-      const totalVisitors = profiles.length;
-      const anonymousCount = profiles.filter((p) => p.is_anonymous).length;
-      const registeredCount = totalVisitors - anonymousCount;
-
-      // Active now: updated in the last 15 minutes
-      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-      const activeNowCount = locations.filter((loc) => loc.updated_at >= fifteenMinsAgo).length;
-
-      // B. Event summaries
-      const totalViews = events.filter((e) => e.event_type === 'store_view').length;
-      const totalNavigations = events.filter((e) => e.event_type === 'route_calculation').length;
-
-      setSummary({
-        totalVisitors,
-        registeredCount,
-        anonymousCount,
-        activeNowCount,
-        totalViews,
-        totalNavigations,
-      });
-
-      // C. Extract popular stores views
-      const storeCountsMap: Record<string, number> = {};
-      events
-        .filter((e) => e.event_type === 'store_view')
-        .forEach((e) => {
-          storeCountsMap[e.target_name] = (storeCountsMap[e.target_name] || 0) + 1;
-        });
-
-      let storesList = Object.entries(storeCountsMap).map(([name, count]) => ({
-        name,
-        count,
-      }));
-
-      // Fallback preview data if database analytics are unseeded yet
-      if (storesList.length === 0) {
-        storesList = [
-          { name: 'Fashion Hub (Alpha)', count: 42 },
-          { name: 'Tech Innovations (Beta)', count: 35 },
-          { name: 'Food Court Plaza', count: 28 },
-          { name: 'Smart Gadgets Booth', count: 19 },
-          { name: 'Book Depot Stall', count: 12 },
-        ];
-      }
-      setPopularStores(storesList.sort((a, b) => b.count - a.count).slice(0, 5));
-
-      // D. Extract popular routes / navigations
-      const routeCountsMap: Record<string, number> = {};
-      events
-        .filter((e) => e.event_type === 'route_calculation')
-        .forEach((e) => {
-          routeCountsMap[e.target_name] = (routeCountsMap[e.target_name] || 0) + 1;
-        });
-
-      let routesList = Object.entries(routeCountsMap).map(([name, count]) => ({
-        name,
-        count,
-      }));
-
-      if (routesList.length === 0) {
-        routesList = [
-          { name: 'Alpha Store Booth', count: 31 },
-          { name: 'South Hall Main Entrance', count: 24 },
-          { name: 'Main Restrooms & Elevators', count: 19 },
-          { name: 'Food Court East Wing', count: 15 },
-          { name: 'Emergency Exit West', count: 7 },
-        ];
-      }
-      setPopularRoutes(routesList.sort((a, b) => b.count - a.count).slice(0, 5));
-
-      // E. Setup visitor locations list (fallback to mapCenter coordinates if no coordinates recorded yet)
-      let finalLocations = locations;
-      if (locations.length === 0) {
-        finalLocations = [
-          { id: '1', latitude: 6.9274, longitude: 79.8615, accuracy: 5, updated_at: new Date().toISOString() } as any,
-          { id: '2', latitude: 6.9270, longitude: 79.8609, accuracy: 12, updated_at: new Date().toISOString() } as any,
-          { id: '3', latitude: 6.9268, longitude: 79.8618, accuracy: 8, updated_at: new Date().toISOString() } as any,
-        ];
-      }
-      setVisitorLocations(finalLocations);
-
-    } catch (err) {
-      console.error('Error fetching analytics details:', err);
-    } finally {
-      setRefreshing(false);
-      setLoading(false);
-    }
-  }
 
   return (
     <main className="admin-page">

@@ -25,29 +25,35 @@ export function AdminVisitorsPage() {
   useEffect(() => {
     fetchVisitorsAndLocations();
 
-    // Subscribe to visitor location updates in real-time
+    // Subscribe to visitor location AND profile changes in real-time
     const channelName = `live-visitors-${Math.random().toString(36).substring(2, 10)}`;
     const channel = supabase
       .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'visitor_locations' },
-        () => {
-          // Re-fetch when locations change
-          fetchVisitorsAndLocations();
-        }
+        () => fetchVisitorsAndLocations()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        () => fetchVisitorsAndLocations()
       )
       .subscribe();
 
+    // Polling fallback: refresh every 30 s in case realtime is not set up for profiles
+    const poll = setInterval(() => fetchVisitorsAndLocations(), 30_000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(poll);
     };
   }, []);
 
   async function fetchVisitorsAndLocations() {
     try {
       const [profilesRes, locationsRes] = await Promise.all([
-        supabase.from('profiles').select('*').eq('is_anonymous', true).order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').eq('role', 'visitor').order('created_at', { ascending: false }),
         supabase.from('visitor_locations').select('*').order('updated_at', { ascending: false }),
       ]);
 
@@ -231,21 +237,36 @@ export function AdminVisitorsPage() {
     <main className="admin-page">
       <header className="admin-page-header">
         <div>
-          <h1>Visitor Logs & Real-Time GPS Tracking</h1>
-          <p>Monitor live positions, coordinates, and registrations</p>
+          <h1>Visitor Logs &amp; Real-Time GPS Tracking</h1>
+          <p>Monitor all visitors — anonymous guest sessions and registered visitor accounts</p>
         </div>
-        <div
-          className="badge badge-success"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            padding: '0.5rem 0.75rem',
-            fontSize: '0.85rem',
-          }}
-        >
-          <Activity size={14} className="spinner" style={{ animationDuration: '2s', borderTopColor: 'var(--color-success)' }} />
-          Live GPS Monitoring Active
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div
+            className="badge badge-info"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.5rem 0.75rem',
+              fontSize: '0.85rem',
+            }}
+          >
+            <Activity size={14} />
+            Total Visitors: {visitors.length}
+          </div>
+          <div
+            className="badge badge-success"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              padding: '0.5rem 0.75rem',
+              fontSize: '0.85rem',
+            }}
+          >
+            <Activity size={14} className="spinner" style={{ animationDuration: '2s', borderTopColor: 'var(--color-success)' }} />
+            Live GPS Active
+          </div>
         </div>
       </header>
 

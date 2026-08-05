@@ -4,6 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // MapLibre GL v6 + Vite: must set worker URL before any Map instance is created.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { type Store, type NavigationNode, type NavigationEdge } from '../lib/supabase';
+import { createKalawanaSchool3DLayer } from './KalawanaSchool3DLayer';
 
 // Register worker — safe to call multiple times (idempotent)
 maplibregl.setWorkerUrl(workerUrl as unknown as string);
@@ -85,56 +86,9 @@ export function MapView3D({
         m.setPaintProperty('building', 'fill-outline-color', '#0f3460');
       }
 
-      // ── 3D building body ─────────────────────────────────────
-      if (!m.getLayer('bld-body')) {
-        m.addLayer({
-          id: 'bld-body',
-          type: 'fill-extrusion',
-          source: 'openmaptiles',
-          'source-layer': 'building',
-          minzoom: 14,
-          paint: {
-            'fill-extrusion-color': '#16213e',
-            'fill-extrusion-height': [
-              'interpolate', ['linear'], ['zoom'],
-              14, 0,
-              15, ['coalesce', ['get', 'render_height'], 8],
-            ],
-            'fill-extrusion-base': [
-              'interpolate', ['linear'], ['zoom'],
-              14, 0,
-              15, ['coalesce', ['get', 'render_min_height'], 0],
-            ],
-            'fill-extrusion-opacity': 0.9,
-          },
-        });
-      }
-
-      // ── Purple roof accent ───────────────────────────────────
-      if (!m.getLayer('bld-roof')) {
-        m.addLayer({
-          id: 'bld-roof',
-          type: 'fill-extrusion',
-          source: 'openmaptiles',
-          'source-layer': 'building',
-          minzoom: 14,
-          paint: {
-            'fill-extrusion-color': '#6366f1',
-            'fill-extrusion-height': [
-              '+',
-              ['interpolate', ['linear'], ['zoom'],
-                14, 0,
-                15, ['coalesce', ['get', 'render_height'], 8]],
-              0.5,
-            ],
-            'fill-extrusion-base': [
-              'interpolate', ['linear'], ['zoom'],
-              14, 0,
-              15, ['coalesce', ['get', 'render_height'], 8],
-            ],
-            'fill-extrusion-opacity': 0.55,
-          },
-        });
+      // ── Three.js Kalawana National School 3D Layer ──────────
+      if (!m.getLayer('kalawana-school-3d')) {
+        m.addLayer(createKalawanaSchool3DLayer('kalawana-school-3d'));
       }
 
       setMapLoaded(true);

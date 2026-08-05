@@ -16,7 +16,7 @@ import {
   TrendingUp,
   ChevronRight,
   Shield,
-  Building2,
+  GraduationCap,
 } from 'lucide-react';
 import { supabase, type Exhibition, type Store as StoreType } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -251,8 +251,8 @@ export function HomePage() {
               border: 'none', whiteSpace: 'nowrap',
             }}
           >
-            <Building2 size={15} />
-            3D Campus
+            <GraduationCap size={16} />
+            3D School
           </Link>
         </section>
 

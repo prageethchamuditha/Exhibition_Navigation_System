@@ -120,9 +120,9 @@ export function MapPage() {
   const [storeSearchQuery, setStoreSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
-  // Leaflet map center anchor
-  const [mapCenterLat, setMapCenterLat] = useState(6.9271);
-  const [mapCenterLng, setMapCenterLng] = useState(79.8612);
+  // Leaflet map center anchor — default: Kalawana National School
+  const [mapCenterLat, setMapCenterLat] = useState(6.535472);
+  const [mapCenterLng, setMapCenterLng] = useState(80.401000);
   // Tracks whether the map has already been centered on a real GPS fix,
   // so the node/store fallback doesn't overwrite it.
   const hasGPSCenteredRef = useRef(false);
@@ -162,6 +162,26 @@ export function MapPage() {
       const navigationNodes = nodesRes.data || [];
       const navigationEdges = edgesRes.data || [];
 
+      // Ensure Kalawana National School landmark is always present on the map
+      const kalawanaSchoolStore: StoreType = {
+        id: 'kalawana-national-school-landmark',
+        name: 'Kalawana National School',
+        description: 'Kalawana National School (Central College) · GCP2+5C6, Kalawana',
+        latitude: 6.535472,
+        longitude: 80.401000,
+        floor_level: 1,
+        is_active: true,
+        categories: {
+          id: 'school-cat',
+          name: 'Education / School',
+          color: '#a855f7',
+        },
+      } as any;
+
+      if (!activeStores.some((s) => s.name.toLowerCase().includes('kalawana'))) {
+        activeStores.unshift(kalawanaSchoolStore);
+      }
+
       setStores(activeStores);
       setNodes(navigationNodes);
       setEdges(navigationEdges);
@@ -174,17 +194,10 @@ export function MapPage() {
         setMockStartNodeId(navigationNodes[0].id);
       }
 
-      // Detect default map center based on nodes or active stores coordinates.
-      // Only apply if GPS hasn't already provided a real position — we don't
-      // want to overwrite a GPS center with the first node/store in the list.
+      // Default map center: Kalawana National School (6.535472, 80.401000)
       if (!hasGPSCenteredRef.current) {
-        if (navigationNodes.length > 0) {
-          setMapCenterLat(navigationNodes[0].latitude);
-          setMapCenterLng(navigationNodes[0].longitude);
-        } else if (activeStores.length > 0 && activeStores[0].latitude) {
-          setMapCenterLat(activeStores[0].latitude);
-          setMapCenterLng(activeStores[0].longitude!);
-        }
+        setMapCenterLat(6.535472);
+        setMapCenterLng(80.401000);
       }
     } catch (err) {
       console.error('Error fetching navigation data:', err);
@@ -547,6 +560,37 @@ export function MapPage() {
 
           {/* Right: desktop nav links */}
           <div className="map-topbar-links" style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
+            <button
+              onClick={() => {
+                setMapCenterLat(6.535472);
+                setMapCenterLng(80.401000);
+              }}
+              className="btn btn-sm"
+              style={{
+                padding: '0.35rem 0.65rem',
+                background: 'linear-gradient(135deg, #a855f7, #6366f1)',
+                color: '#fff',
+                border: 'none',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              title="Center on Kalawana National School"
+            >
+              📍 Kalawana School
+            </button>
+            <Link
+              to="/map3d"
+              className="btn btn-sm"
+              style={{
+                padding: '0.35rem 0.65rem',
+                background: 'rgba(168, 85, 247, 0.15)',
+                color: '#a855f7',
+                border: '1px solid rgba(168, 85, 247, 0.4)',
+                fontWeight: 600,
+              }}
+            >
+              3D School
+            </Link>
             <Link to="/search" className="btn btn-ghost btn-sm" style={{ padding: '0.35rem 0.65rem' }}>
               <Search size={14} style={{ marginRight: 4 }} />
               Search

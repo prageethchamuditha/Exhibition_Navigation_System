@@ -131,19 +131,20 @@ export function MapView({
     stores.forEach((store) => {
       if (store.latitude === null || store.longitude === null) return;
 
-      const catColor = store.categories?.color || 'var(--color-primary)';
+      const isSchool = store.id === 'kalawana-national-school-landmark' || store.name.toLowerCase().includes('kalawana');
+      const catColor = isSchool ? '#a855f7' : (store.categories?.color || 'var(--color-primary)');
       const isDestination = route.length > 0 && route[route.length - 1].store_id === store.id;
 
-      // Custom HTML pin (adds pulse effect if this store is the destination)
+      // Custom HTML pin (adds pulse effect if this store is the destination or Kalawana School)
       const customIcon = L.divIcon({
         className: 'custom-map-pin-wrapper',
         html: `
-          <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;">
-            ${isDestination ? `
+          <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px;">
+            ${isDestination || isSchool ? `
               <div style="
                 position: absolute;
-                width: 44px;
-                height: 44px;
+                width: 48px;
+                height: 48px;
                 border-radius: 50%;
                 background: ${catColor};
                 opacity: 0.4;
@@ -151,26 +152,26 @@ export function MapView({
               "></div>
             ` : ''}
             <div style="
-              width: 26px;
-              height: 26px;
+              width: 30px;
+              height: 30px;
               border-radius: 50%;
               background: ${catColor};
               border: 2.5px solid #fff;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+              box-shadow: 0 2px 10px rgba(0,0,0,0.6);
               display: flex;
               align-items: center;
               justify-content: center;
               color: #fff;
-              font-size: 0.75rem;
+              font-size: ${isSchool ? '0.9rem' : '0.75rem'};
               font-weight: 800;
               z-index: 10;
               overflow: hidden;
             ">
-              ${store.logo_url ? `
+              ${isSchool ? '🏫' : (store.logo_url ? `
                 <img src="${store.logo_url}" alt="${store.name}" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
               ` : `
                 ${store.name[0]}
-              `}
+              `)}
             </div>
           </div>
           <style>
@@ -180,31 +181,46 @@ export function MapView({
             }
           </style>
         `,
-        iconSize: [30, 30],
-        iconAnchor: [15, 15],
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
       });
 
       const marker = L.marker([store.latitude, store.longitude], { icon: customIcon });
 
       // Info bubble popup with detail link
       marker.bindPopup(`
-        <div style="color: #0b0f1a; padding: 0.25rem; font-family: sans-serif; min-width: 140px;">
+        <div style="color: #0b0f1a; padding: 0.3rem; font-family: sans-serif; min-width: 160px;">
           <h4 style="margin: 0 0 0.25rem 0; font-weight: 800; font-size: 0.95rem; line-height: 1.2;">${store.name}</h4>
           <p style="margin: 0 0 0.5rem 0; font-size: 0.75rem; color: #64748b;">
-            Floor: ${store.floor || '1'} · ${store.categories?.name || 'Exhibitor'}
+            ${isSchool ? 'GCP2+5C6, Kalawana · Sri Lanka' : `Floor: ${store.floor || '1'} · ${store.categories?.name || 'Exhibitor'}`}
           </p>
-          <a href="/stores/${store.id}" style="
-            display: block;
-            background: #6366f1;
-            color: #fff;
-            padding: 0.35rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-decoration: none;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(99,102,241,0.25);
-          ">View Profile</a>
+          ${isSchool ? `
+            <a href="/map3d" style="
+              display: block;
+              background: linear-gradient(135deg, #a855f7, #6366f1);
+              color: #fff;
+              padding: 0.4rem;
+              border-radius: 6px;
+              font-size: 0.75rem;
+              font-weight: 700;
+              text-decoration: none;
+              text-align: center;
+              box-shadow: 0 2px 8px rgba(168,85,247,0.3);
+            ">🏫 Open 3D School Map</a>
+          ` : `
+            <a href="/stores/${store.id}" style="
+              display: block;
+              background: #6366f1;
+              color: #fff;
+              padding: 0.35rem;
+              border-radius: 4px;
+              font-size: 0.75rem;
+              font-weight: 700;
+              text-decoration: none;
+              text-align: center;
+              box-shadow: 0 2px 4px rgba(99,102,241,0.25);
+            ">View Profile</a>
+          `}
         </div>
       `);
 

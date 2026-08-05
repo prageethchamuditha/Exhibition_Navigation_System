@@ -1,34 +1,50 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-// MapLibre GL v6 + Vite: worker URL must be set explicitly so the bundler
-// can correctly resolve the worker module. Without this the web worker
-// silently fails to load and the map `load` event never fires.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { ArrowLeft, Layers, RotateCcw, ZoomIn, ZoomOut, Building2, Navigation } from 'lucide-react';
+import { ArrowLeft, Layers, RotateCcw, ZoomIn, ZoomOut, GraduationCap, Navigation, MapPin, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase, type Store } from '../lib/supabase';
+import {
+  createKalawanaSchool3DLayer,
+  getSavedCalibration,
+  type KalawanaCustomLayerInterface,
+  type CalibrationConfig,
+} from '../components/KalawanaSchool3DLayer';
+import { Kalawana3DCalibrationModal } from '../components/Kalawana3DCalibrationModal';
 
-// Register the worker URL before any Map instance is created
+// Register the MapLibre GL worker URL
 maplibregl.setWorkerUrl(workerUrl as unknown as string);
 
-// University of Moratuwa — center coordinates [lng, lat]
-const UOM_CENTER: [number, number] = [79.9003, 6.7967];
-const UOM_ZOOM = 17;
-const UOM_PITCH = 58;
-const UOM_BEARING = -20;
+// ── GCP2+5C6, Kalawana — Coordinates [lng, lat] ─────────────────
+// Kalawana National School (Central College), Sabaragamuwa Province, Sri Lanka
+const KALAWANA_SCHOOL_CENTER: [number, number] = [80.4010, 6.5355];
+const SCHOOL_ZOOM = 18.2;
+const SCHOOL_PITCH = 58;
+const SCHOOL_BEARING = -15;
 
-// Free OpenFreeMap vector tiles — positron (light/neutral base we'll override to dark)
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron';
+
+
 
 export function Map3DPage() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const customLayerRef = useRef<KalawanaCustomLayerInterface | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [is3D, setIs3D] = useState(true);
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
+
+  // Calibration state
+  const [calibration, setCalibration] = useState<CalibrationConfig>(getSavedCalibration());
+  const [showCalibrationModal, setShowCalibrationModal] = useState(false);
+
+  const handleCalibrationChange = (newConfig: CalibrationConfig) => {
+    setCalibration(newConfig);
+    customLayerRef.current?.setCalibration(newConfig);
+  };
 
   // ── Load stores from Supabase ────────────────────────────────
   useEffect(() => {
@@ -50,18 +66,16 @@ export function Map3DPage() {
     const m = new maplibregl.Map({
       container: mapContainer.current,
       style: MAP_STYLE,
-      center: UOM_CENTER,
-      zoom: UOM_ZOOM,
-      pitch: UOM_PITCH,
-      bearing: UOM_BEARING,
+      center: KALAWANA_SCHOOL_CENTER,
+      zoom: SCHOOL_ZOOM,
+      pitch: SCHOOL_PITCH,
+      bearing: SCHOOL_BEARING,
     });
 
     map.current = m;
 
-    // Compass + zoom controls
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 
-    // Surface any map errors to the console for debugging
     m.on('error', (e) => {
       console.error('[MapLibre error]', e);
     });
@@ -69,82 +83,33 @@ export function Map3DPage() {
     m.on('load', () => {
       setMapLoaded(true);
 
-      // ── Override base map colours to dark theme ───────────────
+      // ── Dark theme overrides ───────────────────────────────
       if (m.getLayer('background')) {
         m.setPaintProperty('background', 'background-color', '#0d1117');
       }
       if (m.getLayer('water')) {
         m.setPaintProperty('water', 'fill-color', '#0a1628');
       }
-      // Positron style road layer IDs
       ['highway_minor', 'highway_major_inner', 'highway_major_casing', 'highway_motorway_inner', 'highway_motorway_casing'].forEach((id) => {
         if (m.getLayer(id)) m.setPaintProperty(id, 'line-color', '#1e2a3a');
       });
 
-      // ── Darken the 2-D building footprint layer ───────────────
-      // (The positron style only ships a flat 'building' fill layer —
-      //  there is NO built-in 'building-3d' extrusion layer.)
       if (m.getLayer('building')) {
         m.setPaintProperty('building', 'fill-color', '#1a2035');
         m.setPaintProperty('building', 'fill-outline-color', '#0f3460');
       }
 
-      // ── Add custom 3-D building extrusion layer ───────────────
-      // We create our own fill-extrusion on top of the openmaptiles
-      // 'building' source-layer since the positron style doesn't include one.
-      if (!m.getLayer('custom-buildings-3d')) {
-        m.addLayer({
-          id: 'custom-buildings-3d',
-          type: 'fill-extrusion',
-          source: 'openmaptiles',
-          'source-layer': 'building',
-          minzoom: 14,
-          paint: {
-            'fill-extrusion-color': '#16213e',
-            'fill-extrusion-height': [
-              'interpolate', ['linear'], ['zoom'],
-              14, 0,
-              15, ['coalesce', ['get', 'render_height'], 8],
-            ],
-            'fill-extrusion-base': [
-              'interpolate', ['linear'], ['zoom'],
-              14, 0,
-              15, ['coalesce', ['get', 'render_min_height'], 0],
-            ],
-            'fill-extrusion-opacity': 0.9,
-          },
-        });
+      // ── Three.js Kalawana National School 3D Layer ──────────
+      if (!m.getLayer('kalawana-school-3d')) {
+        const layer = createKalawanaSchool3DLayer('kalawana-school-3d', calibration);
+        customLayerRef.current = layer;
+        m.addLayer(layer);
       }
 
-      // ── Purple roof highlight (thin layer on top of buildings) ─
-      if (!m.getLayer('custom-buildings-roof')) {
-        m.addLayer({
-          id: 'custom-buildings-roof',
-          type: 'fill-extrusion',
-          source: 'openmaptiles',
-          'source-layer': 'building',
-          minzoom: 14,
-          paint: {
-            'fill-extrusion-color': '#6366f1',
-            'fill-extrusion-height': [
-              '+',
-              ['interpolate', ['linear'], ['zoom'],
-                14, 0,
-                15, ['coalesce', ['get', 'render_height'], 8]],
-              0.5,
-            ],
-            'fill-extrusion-base': [
-              'interpolate', ['linear'], ['zoom'],
-              14, 0,
-              15, ['coalesce', ['get', 'render_height'], 8],
-            ],
-            'fill-extrusion-opacity': 0.55,
-          },
-        });
-      }
 
-      // ── UoM campus boundary polygon ───────────────────────────
-      m.addSource('uom-campus', {
+
+      // ── Kalawana School Grounds Perimeter Boundary ─────────
+      m.addSource('school-campus-boundary', {
         type: 'geojson',
         data: {
           type: 'Feature',
@@ -152,49 +117,51 @@ export function Map3DPage() {
           geometry: {
             type: 'Polygon',
             coordinates: [[
-              [79.8975, 6.7950],
-              [79.9035, 6.7950],
-              [79.9040, 6.7985],
-              [79.8978, 6.7988],
-              [79.8975, 6.7950],
+              [80.3992, 6.5342],
+              [80.4024, 6.5342],
+              [80.4024, 6.5365],
+              [80.3992, 6.5365],
+              [80.3992, 6.5342],
             ]],
           },
         },
       });
 
       m.addLayer({
-        id: 'uom-campus-fill',
+        id: 'school-boundary-fill',
         type: 'fill',
-        source: 'uom-campus',
-        paint: { 'fill-color': '#6366f1', 'fill-opacity': 0.05 },
+        source: 'school-campus-boundary',
+        paint: { 'fill-color': '#6366f1', 'fill-opacity': 0.08 },
       });
 
       m.addLayer({
-        id: 'uom-campus-outline',
+        id: 'school-boundary-line',
         type: 'line',
-        source: 'uom-campus',
+        source: 'school-campus-boundary',
         paint: {
-          'line-color': '#6366f1',
-          'line-width': 2.5,
-          'line-opacity': 0.8,
-          'line-dasharray': [4, 3],
+          'line-color': '#a855f7',
+          'line-width': 3,
+          'line-opacity': 0.9,
+          'line-dasharray': [4, 2],
         },
       });
-    }); // ← end of m.on('load', ...)
+    });
 
     return () => {
       m.remove();
       map.current = null;
     };
-  }, []); // ← end of useEffect
+  }, []);
 
-  // ── Add store markers once map + stores are ready ────────────
+  // ── Add store markers & school facility markers ───────────────
   useEffect(() => {
-    if (!mapLoaded || !map.current || stores.length === 0) return;
+    if (!mapLoaded || !map.current) return;
 
     // Remove old markers
     markersRef.current.forEach((mk) => mk.remove());
     markersRef.current = [];
+
+
 
     stores.forEach((store) => {
       if (!store.latitude || !store.longitude) return;
@@ -227,16 +194,16 @@ export function Map3DPage() {
   // ── Controls ─────────────────────────────────────────────────
   const resetView = () => {
     map.current?.flyTo({
-      center: UOM_CENTER,
-      zoom: UOM_ZOOM,
-      pitch: UOM_PITCH,
-      bearing: UOM_BEARING,
+      center: KALAWANA_SCHOOL_CENTER,
+      zoom: SCHOOL_ZOOM,
+      pitch: SCHOOL_PITCH,
+      bearing: SCHOOL_BEARING,
       duration: 1200,
     });
   };
 
   const toggle3D = () => {
-    map.current?.easeTo({ pitch: is3D ? 0 : UOM_PITCH, duration: 800 });
+    map.current?.easeTo({ pitch: is3D ? 0 : SCHOOL_PITCH, duration: 800 });
     setIs3D(!is3D);
   };
 
@@ -246,7 +213,7 @@ export function Map3DPage() {
       center: [store.longitude, store.latitude],
       zoom: 19,
       pitch: 65,
-      bearing: UOM_BEARING,
+      bearing: SCHOOL_BEARING,
       duration: 1400,
     });
   };
@@ -285,29 +252,45 @@ export function Map3DPage() {
             border: '1px solid rgba(99,102,241,0.35)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
           }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#fff' }}>
-              🎓 University of Moratuwa
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <GraduationCap size={16} color="#a855f7" /> Kalawana School (3D School)
             </div>
-            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>
-              3D Campus View · Exhibition Navigation
+            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', marginTop: 1, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <MapPin size={10} color="#22d3ee" /> GCP2+5C6, Kalawana · Sri Lanka
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
-          <div style={{
-            padding: '0.45rem 0.85rem', borderRadius: 10,
-            background: 'rgba(10,10,26,0.85)', backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255,255,255,0.1)', color: '#fff',
-            fontSize: '0.78rem', fontWeight: 600,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-            display: 'flex', alignItems: 'center', gap: '0.4rem',
-          }}>
-            <Building2 size={13} color="#a855f7" />
-            {stores.length} Exhibitors
-          </div>
+          <button
+            onClick={() => setShowCalibrationModal(!showCalibrationModal)}
+            title="Calibrate 3D Model Scale, Position & Rotation"
+            style={{
+              padding: '0.45rem 0.85rem', borderRadius: 10,
+              background: showCalibrationModal
+                ? 'linear-gradient(135deg, #6366f1, #a855f7)'
+                : 'rgba(10,10,26,0.85)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(99,102,241,0.4)', color: '#fff',
+              fontSize: '0.78rem', fontWeight: 600,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              cursor: 'pointer',
+            }}
+          >
+            <Settings size={14} color="#a855f7" />
+            Calibrate Size/Pos
+          </button>
         </div>
       </div>
+
+      {/* ── Calibration Control Floating Panel ─────────────────────── */}
+      <Kalawana3DCalibrationModal
+        isOpen={showCalibrationModal}
+        onClose={() => setShowCalibrationModal(false)}
+        config={calibration}
+        onChange={handleCalibrationChange}
+      />
 
       {/* ── Left control buttons ─────────────────────── */}
       <div style={{
@@ -471,12 +454,12 @@ export function Map3DPage() {
             background: 'linear-gradient(135deg, #6366f1, #a855f7)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: '1.5rem',
-          }}>🎓</div>
+          }}>🏫</div>
           <div style={{ color: '#fff', fontWeight: 700, fontSize: '1rem' }}>
-            Loading 3D Campus…
+            Loading 3D School…
           </div>
           <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem' }}>
-            University of Moratuwa · OpenStreetMap
+            GCP2+5C6, Kalawana · Sri Lanka
           </div>
           <div className="spinner" style={{ width: 28, height: 28, borderTopColor: '#6366f1', marginTop: 8 }} />
         </div>

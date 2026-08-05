@@ -40,7 +40,7 @@ export function AdminUsersPage() {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('is_anonymous', false)
+        .in('role', ['admin', 'store_admin'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -288,8 +288,8 @@ export function AdminUsersPage() {
     <main className="admin-page">
       <header className="admin-page-header">
         <div>
-          <h1>Registered System Users</h1>
-          <p>Manage administrative, organizer, and local user accounts</p>
+          <h1>System Staff Accounts</h1>
+          <p>Manage administrators and store admin accounts</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div
@@ -303,7 +303,7 @@ export function AdminUsersPage() {
             }}
           >
             <UserCheck size={14} />
-            Registered Users: {users.length}
+            Staff Accounts: {users.length}
           </div>
           <button
             className="btn btn-primary"
@@ -335,7 +335,7 @@ export function AdminUsersPage() {
           columns={columns}
           rows={filteredUsers}
           loading={loading}
-          emptyMessage="No registered system users found."
+          emptyMessage="No admin or store admin accounts found."
         />
       </section>
 

@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { MapPin, Mail, Lock, Eye, EyeOff, LogIn, UserX, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export function LoginPage() {
-  const { signIn, signInAnonymously } = useAuth();
+  const { signIn, signInAnonymously, user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/';
@@ -14,14 +14,21 @@ export function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [anonLoading, setAnonLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // If the user is already authenticated (including as a guest), redirect away
+  useEffect(() => {
+    if (!loading && user) {
+      navigate(from === '/login' ? '/' : (from || '/'), { replace: true });
+    }
+  }, [user, loading, navigate, from]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setLoginLoading(true);
     try {
       let loginIdentifier = username;
       if (!username.includes('@')) {
@@ -44,7 +51,7 @@ export function LoginPage() {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign in failed. Please try again.');
     } finally {
-      setLoading(false);
+      setLoginLoading(false);
     }
   };
 
@@ -53,8 +60,11 @@ export function LoginPage() {
     setError('');
     setAnonLoading(true);
     try {
+      // signInAnonymously already guards against creating a new account
+      // if one exists — this also handles the case where bootstrap already
+      // restored a cached session before the user clicked the button.
       await signInAnonymously();
-      navigate(from, { replace: true });
+      navigate(from === '/login' ? '/' : (from || '/'), { replace: true });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not start guest session.');
     } finally {
@@ -163,11 +173,11 @@ export function LoginPage() {
             id="login-submit"
             type="submit"
             className="btn btn-primary btn-full"
-            disabled={loading}
+            disabled={loginLoading}
             style={{ marginTop: '0.5rem' }}
           >
-            {loading ? <span className="spinner" /> : <LogIn size={16} />}
-            {loading ? 'Signing in…' : 'Sign In'}
+            {loginLoading ? <span className="spinner" /> : <LogIn size={16} />}
+            {loginLoading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
 
