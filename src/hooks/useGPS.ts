@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { GPSKalmanFilter } from '../utils/gpsFilter';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,9 @@ export function useGPS(): GPSState {
   const [longitude, setLongitude] = useState<number | null>(null);
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Kalman Filter for coordinates smoothing
+  const filterRef = useRef(new GPSKalmanFilter(0.8, 1.8));
 
   // BUG FIX: use refs to prevent duplicate watchers & intervals
   const watchIdRef = useRef<number | null>(null);
@@ -116,7 +120,8 @@ export function useGPS(): GPSState {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        const { latitude: lat, longitude: lng, accuracy: acc } = pos.coords;
+        const { latitude: rawLat, longitude: rawLng, accuracy: acc } = pos.coords;
+        const { lat, lng } = filterRef.current.filter(rawLat, rawLng, acc, pos.timestamp || Date.now());
         setLatitude(lat);
         setLongitude(lng);
         setAccuracy(acc);
@@ -152,6 +157,7 @@ export function useGPS(): GPSState {
       clearInterval(syncTimerRef.current);
       syncTimerRef.current = null;
     }
+    filterRef.current.reset();
   }, []);
 
   // Check permission state and start tracking on mount

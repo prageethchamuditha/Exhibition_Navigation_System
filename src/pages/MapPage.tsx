@@ -22,6 +22,7 @@ import { MapView } from '../components/MapView';
 import { MapView3D } from '../components/MapView3D';
 import { calculateShortestPath, calculateShortestPathWithSnapping, findClosestNode, getDistance, getHeading } from '../utils/dijkstra';
 import { logAnalyticsEvent } from '../lib/analytics';
+import { GPSKalmanFilter } from '../utils/gpsFilter';
 
 export function MapPage() {
   const { profile } = useAuth();
@@ -57,6 +58,9 @@ export function MapPage() {
   const [snappedToNode, setSnappedToNode] = useState<string | null>(null); // label of entrance used as fallback start
   const [, setGpsError] = useState<string | null>(null);
   const [mockMode, setMockMode] = useState(false);
+
+  // Kalman Filter for coordinates smoothing
+  const filterRef = useRef(new GPSKalmanFilter(0.8, 1.8));
 
   // When GPS accuracy is worse than this threshold (metres), we snap the
   // route start to the nearest entrance node instead of trusting raw GPS.
@@ -139,6 +143,7 @@ export function MapPage() {
       if (geoWatchIdRef.current !== null) {
         navigator.geolocation.clearWatch(geoWatchIdRef.current);
       }
+      filterRef.current.reset();
     };
   }, []);
 
@@ -216,7 +221,8 @@ export function MapPage() {
 
     geoWatchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        const { latitude: lat, longitude: lng, accuracy } = position.coords;
+        const { latitude: rawLat, longitude: rawLng, accuracy } = position.coords;
+        const { lat, lng } = filterRef.current.filter(rawLat, rawLng, accuracy, position.timestamp || Date.now());
         setUserLat(lat);
         setUserLng(lng);
         setGpsAccuracy(accuracy ?? null);
