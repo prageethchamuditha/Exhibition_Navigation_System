@@ -77,13 +77,39 @@ export class GPSKalmanFilter {
       return { lat: newLat, lng: newLng };
     }
 
+    // Calculate raw distance from the last stable coordinate to determine user movement state
+    const rawDistFromStable = getDistance(this.lastStableLat!, this.lastStableLng!, newLat, newLng);
+
+    // Dynamic Parameter Adaptation:
+    // If the user moves away from their last stable point (> 1.8 meters), we assume they are moving.
+    // We increase process noise (Q) to 2.8 (very high responsiveness) and decrease the dead-zone
+    // threshold to 0.2 meters (almost instant updates).
+    // If the user stays near their last stable point (< 0.8 meters), we assume they are static.
+    // We decrease process noise (Q) to 0.05 (strict filtering) and increase the dead-zone
+    // threshold to 0.8 meters to lock position jitter.
+    let activeQ = this.q;
+    let activeDeadZone = this.deadZoneThreshold;
+
+    if (rawDistFromStable > 1.8) {
+      activeQ = 2.8;
+      activeDeadZone = 0.2;
+    } else if (rawDistFromStable < 0.8) {
+      activeQ = 0.05;
+      activeDeadZone = 0.8;
+    } else {
+      // Linear interpolation between the two states
+      const t = (rawDistFromStable - 0.8) / 1.0;
+      activeQ = 0.05 + t * (2.8 - 0.05);
+      activeDeadZone = 0.8 - t * (0.8 - 0.2);
+    }
+
     // 2. Calculate time duration (seconds) since last update
     const duration = (timestamp - this.lastTimestamp) / 1000.0;
     this.lastTimestamp = timestamp;
 
-    // 3. Prediction step (variance increases over time due to process noise)
+    // 3. Prediction step (variance increases over time due to activeQ)
     if (duration > 0) {
-      this.variance += duration * this.q * this.q;
+      this.variance += duration * activeQ * activeQ;
     }
 
     // 4. Update / Correction step
@@ -102,21 +128,13 @@ export class GPSKalmanFilter {
     this.lat = filteredLat;
     this.lng = filteredLng;
 
-    // 5. Apply Dead-Zone Thresholding
-    // If the distance between the filtered estimate and the last stable coordinate
-    // is smaller than the deadZoneThreshold, we keep using the last stable coordinate.
-    // This removes the small "static jitter" while keeping overall coordinates smooth.
-    if (this.lastStableLat !== null && this.lastStableLng !== null) {
-      const dist = getDistance(this.lastStableLat, this.lastStableLng, filteredLat, filteredLng);
-      if (dist >= this.deadZoneThreshold) {
-        this.lastStableLat = filteredLat;
-        this.lastStableLng = filteredLng;
-      }
-    } else {
+    // 5. Apply Dynamic Dead-Zone Thresholding
+    const dist = getDistance(this.lastStableLat!, this.lastStableLng!, filteredLat, filteredLng);
+    if (dist >= activeDeadZone) {
       this.lastStableLat = filteredLat;
       this.lastStableLng = filteredLng;
     }
 
-    return { lat: this.lastStableLat, lng: this.lastStableLng };
+    return { lat: this.lastStableLat!, lng: this.lastStableLng! };
   }
 }
