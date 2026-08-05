@@ -41,7 +41,7 @@ export function useGPS(): GPSState {
   const [error, setError] = useState<string | null>(null);
 
   // Kalman Filter for coordinates smoothing
-  const filterRef = useRef(new GPSKalmanFilter(0.8, 1.8));
+  const filterRef = useRef(new GPSKalmanFilter());
 
   // BUG FIX: use refs to prevent duplicate watchers & intervals
   const watchIdRef = useRef<number | null>(null);

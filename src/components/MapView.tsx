@@ -48,6 +48,8 @@ export function MapView({
   // Tracks the last destination node ID whose bounds we fitted, so we only
   // call fitBounds once when a new route is first drawn — never on GPS updates.
   const lastFittedDestRef = useRef<string | null>(null);
+  const userAnimatedPosRef = useRef<{ lat: number; lng: number } | null>(null);
+  const animationFrameIdRef = useRef<number | null>(null);
 
   // 1. Initialize Map
   useEffect(() => {
@@ -228,7 +230,7 @@ export function MapView({
     });
   }, [map, stores, route]);
 
-  // 5. Render User Location Marker
+  // 5. Render & Interpolate User Location Marker (60fps animation loop)
   useEffect(() => {
     if (!map) return;
 
@@ -258,17 +260,63 @@ export function MapView({
         iconAnchor: [7, 7],
       });
 
-      if (userMarkerRef.current) {
-        userMarkerRef.current.setLatLng([userLat, userLng]);
-      } else {
-        userMarkerRef.current = L.marker([userLat, userLng], { icon: userIcon }).addTo(map);
+      // Initialize animation starting coordinate on first GPS signal
+      if (!userAnimatedPosRef.current) {
+        userAnimatedPosRef.current = { lat: userLat, lng: userLng };
       }
+
+      if (!userMarkerRef.current) {
+        userMarkerRef.current = L.marker([userAnimatedPosRef.current.lat, userAnimatedPosRef.current.lng], { icon: userIcon }).addTo(map);
+      }
+
+      // 60fps requestAnimationFrame interpolation loop
+      const animateMarker = () => {
+        if (!userAnimatedPosRef.current || !userMarkerRef.current) return;
+
+        const current = userAnimatedPosRef.current;
+        const target = { lat: userLat, lng: userLng };
+
+        const dLat = target.lat - current.lat;
+        const dLng = target.lng - current.lng;
+
+        // Easing multiplier (0.085 moves the marker 8.5% closer in each frame, creating a smooth decelerating glide)
+        // If the marker gets extremely close to the target, snap directly to avoid sub-pixel rendering stutters
+        if (Math.abs(dLat) < 0.0000002 && Math.abs(dLng) < 0.0000002) {
+          current.lat = target.lat;
+          current.lng = target.lng;
+          userMarkerRef.current.setLatLng([target.lat, target.lng]);
+        } else {
+          current.lat += dLat * 0.085;
+          current.lng += dLng * 0.085;
+          userMarkerRef.current.setLatLng([current.lat, current.lng]);
+          animationFrameIdRef.current = requestAnimationFrame(animateMarker);
+        }
+      };
+
+      // Cancel any running animation frames to avoid overlapping speed runs
+      if (animationFrameIdRef.current !== null) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+      }
+      animationFrameIdRef.current = requestAnimationFrame(animateMarker);
+
     } else {
+      if (animationFrameIdRef.current !== null) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
       if (userMarkerRef.current) {
         userMarkerRef.current.remove();
         userMarkerRef.current = null;
       }
+      userAnimatedPosRef.current = null;
     }
+
+    return () => {
+      if (animationFrameIdRef.current !== null) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+    };
   }, [map, userLat, userLng]);
 
   // 6. Render Route Polyline
