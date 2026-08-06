@@ -23,21 +23,11 @@ import { MapView3D } from '../components/MapView3D';
 import { calculateShortestPath, calculateShortestPathWithSnapping, findClosestNode, getDistance, getHeading } from '../utils/dijkstra';
 import { logAnalyticsEvent } from '../lib/analytics';
 import { GPSKalmanFilter } from '../utils/gpsFilter';
-import { useDeviceOrientation } from '../hooks/useDeviceOrientation';
 
 export function MapPage() {
   const { profile } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
-
-  // ── Compass / Device Orientation ───────────────────────────────────────────
-  // heading: 0–360 degrees clockwise from North (null when compass unavailable)
-  // permission: 'unknown' on iOS until user taps the compass enable button
-  const {
-    heading,
-    permission: compassPermission,
-    requestPermission: requestCompassPermission,
-  } = useDeviceOrientation();
 
   useEffect(() => {
     const handleUnread = (e: Event) => {
@@ -126,7 +116,7 @@ export function MapPage() {
       sheetRef.current.style.transform = 'translateY(0)';
     }
     if (delta < -60) setNavSheetExpanded(true);   // dragged up → expand
-    if (delta > 60) setNavSheetExpanded(false);  // dragged down → collapse
+    if (delta > 60)  setNavSheetExpanded(false);  // dragged down → collapse
   }, []);
 
 
@@ -473,7 +463,7 @@ export function MapPage() {
         if (i === 0) {
           steps.push(`Start from ${from.label}`);
         }
-
+        
         let directionStr = 'Continue straight';
         if (to.floor && from.floor && to.floor !== from.floor) {
           directionStr = `Take escalator/lift to Floor ${to.floor}`;
@@ -514,7 +504,7 @@ export function MapPage() {
       }
     }
   };
-
+  
   // Extract unique categories from stores for the map legend
   const mapCategories = stores.reduce<Array<{ id: string; name: string; color: string | null }>>((acc, store) => {
     if (store.categories && !acc.some((c) => c.id === store.categories!.id)) {
@@ -525,8 +515,8 @@ export function MapPage() {
 
   const filteredSearchStores = storeSearchQuery.trim()
     ? stores.filter((st) =>
-      st.name.toLowerCase().includes(storeSearchQuery.toLowerCase())
-    )
+        st.name.toLowerCase().includes(storeSearchQuery.toLowerCase())
+      )
     : [];
 
   if (loading) {
@@ -541,7 +531,7 @@ export function MapPage() {
     <>
       <GPSPermissionBanner />
       <div className="home-page" style={{ height: '100vh', display: 'flex', flexDirection: 'column', gap: 0, padding: 0 }}>
-
+        
         {/* Top Floating Control Bar */}
         <header className="glass map-topbar" style={{
           position: 'absolute',
@@ -721,8 +711,6 @@ export function MapPage() {
               showGraphMesh={showMesh}
               nodes={nodes}
               edges={edges}
-              heading={mockMode ? null : heading}
-              gpsAccuracy={mockMode ? null : gpsAccuracy}
             />
           )}
 
@@ -749,74 +737,6 @@ export function MapPage() {
           >
             <Navigation size={18} style={{ transform: 'rotate(45deg)' }} />
           </button>
-
-          {/* Compass Enable Button — iOS 13+ requires a user gesture before the
-              DeviceOrientationEvent permission dialog is shown. This button is
-              only visible when permission is 'unknown' (i.e. never requested yet). */}
-          {compassPermission === 'unknown' && !mockMode && (
-            <button
-              onClick={requestCompassPermission}
-              style={{
-                position: 'absolute',
-                bottom: navigationActive ? '285px' : '75px',
-                right: '20px',
-                zIndex: 1000,
-                borderRadius: '50%',
-                width: '46px',
-                height: '46px',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
-                cursor: 'pointer',
-                fontSize: '1.3rem',
-                transition: 'bottom 0.3s ease',
-              }}
-              title="Enable Compass Direction"
-            >
-              🧭
-            </button>
-          )}
-
-          {/* Compass Heading Indicator — shows the current heading in degrees
-              when the compass is active, as a small badge near the recenter button. */}
-          {heading !== null && !mockMode && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: navigationActive ? '340px' : '130px',
-                right: '20px',
-                zIndex: 1000,
-                borderRadius: '50%',
-                width: '46px',
-                height: '46px',
-                background: 'rgba(66,133,244,0.12)',
-                border: '1px solid rgba(66,133,244,0.35)',
-                boxShadow: '0 2px 8px rgba(66,133,244,0.2)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '1px',
-                transition: 'bottom 0.3s ease',
-                pointerEvents: 'none',
-              }}
-              title={`Heading: ${heading}°`}
-            >
-              <div style={{
-                fontSize: '1rem',
-                transform: `rotate(${heading}deg)`,
-                transition: 'transform 0.3s ease',
-                lineHeight: 1,
-              }}>&#8593;</div>
-              <span style={{ fontSize: '0.45rem', color: 'rgba(66,133,244,0.8)', fontWeight: 700, letterSpacing: '0.02em' }}>
-                {heading}°
-              </span>
-            </div>
-          )}
 
           {/* Floating Category Legend overlay */}
           <div className="glass map-legend-panel" style={{
@@ -856,10 +776,10 @@ export function MapPage() {
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} />
                     <span>Navigation Route</span>
                   </div>
-
+                  
                   <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '0.25rem', paddingTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                     <span style={{ fontSize: '0.65rem', color: 'var(--color-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>CATEGORIES</span>
-
+                    
                     {/* Dynamic Exhibitor categories from database */}
                     {mapCategories.length > 0 ? (
                       mapCategories.map((cat) => (
