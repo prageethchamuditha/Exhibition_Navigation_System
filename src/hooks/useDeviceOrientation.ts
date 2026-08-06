@@ -145,7 +145,7 @@ export function useDeviceOrientation(): DeviceOrientationState {
   const requestPermission = useCallback(async () => {
     // iOS 13+ requires explicit permission via a user gesture
     const DoE = DeviceOrientationEvent as unknown as {
-      requestPermission?: () => Promise<string>;
+      requestPermission?: () => Promise<PermissionState>;
     };
 
     if (typeof DoE.requestPermission === 'function') {
@@ -174,7 +174,7 @@ export function useDeviceOrientation(): DeviceOrientationState {
     }
 
     const DoE = DeviceOrientationEvent as unknown as {
-      requestPermission?: () => Promise<string>;
+      requestPermission?: () => Promise<PermissionState>;
     };
 
     if (typeof DoE.requestPermission === 'function') {
