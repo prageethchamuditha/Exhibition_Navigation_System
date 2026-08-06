@@ -19,6 +19,10 @@ export default defineConfig({
       },
     },
   ],
+  server: {
+    host: true,
+    port: 5173,
+  },
   // Exclude the MapLibre GL worker from Vite's dep pre-bundler so that the
   // ?worker&url import in Map3DPage.tsx goes through Vite's worker pipeline
   // rather than the optimizer (which would strip the ?worker query and break

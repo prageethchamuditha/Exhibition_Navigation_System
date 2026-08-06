@@ -23,6 +23,75 @@ interface MapViewProps {
   showGraphMesh?: boolean;
   nodes?: NavigationNode[];
   edges?: NavigationEdge[];
+  /** Compass heading in degrees clockwise from North (0–360). Drives the direction cone. */
+  heading?: number | null;
+  /** GPS accuracy radius in meters. Drives the accuracy circle. */
+  gpsAccuracy?: number | null;
+}
+
+// ─── Direction-Aware User Location Icon ───────────────────────────────────────
+
+/**
+ * Builds a Leaflet DivIcon that shows:
+ *  • A Google-Maps-style blue dot (always shown)
+ *  • A pulsing accuracy ring (always shown)
+ *  • A semi-transparent flashlight-beam cone (only when heading is available)
+ *    The entire icon div is rotated by `heading` degrees so the cone points
+ *    in the compass direction the device is facing.
+ */
+function buildUserDirectionIcon(heading: number | null): L.DivIcon {
+  const hasHeading = heading !== null;
+  const rotation = hasHeading ? heading! : 0;
+
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="
+        width:80px;height:80px;position:relative;
+        transform:rotate(${rotation}deg);
+        transform-origin:40px 40px;
+        pointer-events:none;
+      ">
+        ${hasHeading ? `
+        <!-- Flashlight beam cone: two overlapping SVG paths for depth -->
+        <svg width="80" height="80" viewBox="0 0 80 80"
+             style="position:absolute;inset:0;overflow:visible">
+          <!-- Outer glow: wide and very transparent -->
+          <path d="M 40 40 L 5 4 Q 40 -7 75 4 Z"
+                fill="rgba(66,133,244,0.15)"/>
+          <!-- Inner beam: narrow and opaque -->
+          <path d="M 40 40 L 20 7 Q 40 1 60 7 Z"
+                fill="rgba(66,133,244,0.52)"/>
+        </svg>
+        ` : ''}
+
+        <!-- Pulsing accuracy ring -->
+        <div style="
+          position:absolute;width:26px;height:26px;border-radius:50%;
+          border:2px solid rgba(66,133,244,0.45);
+          top:50%;left:50%;transform:translate(-50%,-50%);
+          animation:user-dir-ping 2.1s ease-out infinite;
+        "></div>
+
+        <!-- Blue dot -->
+        <div style="
+          position:absolute;width:16px;height:16px;border-radius:50%;
+          background:#4285f4;border:2.5px solid #fff;
+          box-shadow:0 2px 10px rgba(66,133,244,0.75);
+          top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;
+        "></div>
+      </div>
+
+      <style>
+        @keyframes user-dir-ping {
+          0%   { opacity: .85; transform: translate(-50%,-50%) scale(.65); }
+          100% { opacity: 0;   transform: translate(-50%,-50%) scale(2.5); }
+        }
+      </style>
+    `,
+    iconSize: [80, 80],
+    iconAnchor: [40, 40],
+  });
 }
 
 export function MapView({
@@ -37,14 +106,20 @@ export function MapView({
   showGraphMesh = false,
   nodes = [],
   edges = [],
+  heading = null,
+  gpsAccuracy = null,
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<L.Map | null>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(zoom);
+
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.FeatureGroup | null>(null);
   const meshLayerRef = useRef<L.FeatureGroup | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+  /** Leaflet circle showing the GPS accuracy radius (the translucent blue area). */
+  const accuracyCircleRef = useRef<L.Circle | null>(null);
   // Tracks the last destination node ID whose bounds we fitted, so we only
   // call fitBounds once when a new route is first drawn — never on GPS updates.
   const lastFittedDestRef = useRef<string | null>(null);
@@ -59,6 +134,11 @@ export function MapView({
       zoom,
       zoomControl: true,
       attributionControl: false,
+    });
+
+    // Listen for zoom events to update live zoom percentage display
+    newMap.on('zoom zoomend', () => {
+      setCurrentZoom(newMap.getZoom());
     });
 
     // Create Layer groups
@@ -81,9 +161,9 @@ export function MapView({
       routeLayerRef.current = null;
       meshLayerRef.current = null;
       tileLayerRef.current = null;
+      accuracyCircleRef.current = null;
     };
-  }, []); // Run once on mount only — do NOT include lat/lng/zoom here;
-           // changing those should never destroy and recreate the whole map.
+  }, []); // Run once on mount only
 
   // 2. Tile Layer Theme Manager
   useEffect(() => {
@@ -110,22 +190,17 @@ export function MapView({
   }, [map, theme]);
 
   // 3. Update view center when the parent explicitly re-centers (no active route)
-  // Only flyTo when there is no active navigation — this handles the "Recenter"
-  // button press without interfering with the user's manual pan/zoom.
   useEffect(() => {
     if (map && route.length === 0) {
       map.setView([latitude, longitude], zoom);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, latitude, longitude]); // intentionally omit route.length / zoom
-                                  // to avoid re-centering on every GPS tick
+  }, [map, latitude, longitude]);
 
   // 4. Render Store Markers
   useEffect(() => {
     const markersLayer = markersLayerRef.current;
     if (!map || !markersLayer) return;
 
-    // Clear existing markers
     markersLayer.clearLayers();
 
     stores.forEach((store) => {
@@ -135,7 +210,6 @@ export function MapView({
       const catColor = isSchool ? '#a855f7' : (store.categories?.color || 'var(--color-primary)');
       const isDestination = route.length > 0 && route[route.length - 1].store_id === store.id;
 
-      // Custom HTML pin (adds pulse effect if this store is the destination or Kalawana School)
       const customIcon = L.divIcon({
         className: 'custom-map-pin-wrapper',
         html: `
@@ -187,7 +261,6 @@ export function MapView({
 
       const marker = L.marker([store.latitude, store.longitude], { icon: customIcon });
 
-      // Info bubble popup with detail link
       marker.bindPopup(`
         <div style="color: #0b0f1a; padding: 0.3rem; font-family: sans-serif; min-width: 160px;">
           <h4 style="margin: 0 0 0.25rem 0; font-weight: 800; font-size: 0.95rem; line-height: 1.2;">${store.name}</h4>
@@ -228,40 +301,35 @@ export function MapView({
     });
   }, [map, stores, route]);
 
-  // 5. Render User Location Marker
+  // 5. Render User Location Marker + GPS Accuracy Circle + Compass Direction Cone
   useEffect(() => {
     if (!map) return;
 
+    if (accuracyCircleRef.current) {
+      accuracyCircleRef.current.remove();
+      accuracyCircleRef.current = null;
+    }
+
     if (userLat !== null && userLng !== null) {
-      const userIcon = L.divIcon({
-        className: 'user-map-pin',
-        html: `
-          <div style="position: relative;">
-            <div style="
-              width: 14px;
-              height: 14px;
-              border-radius: 50%;
-              background: #22d3ee;
-              border: 2px solid #fff;
-              box-shadow: 0 0 6px rgba(34,211,238,0.6);
-            "></div>
-            <div style="
-              position: absolute;
-              inset: -8px;
-              border-radius: 50%;
-              border: 2px solid rgba(34,211,238,0.4);
-              animation: map-ping 1.6s infinite ease-out;
-            "></div>
-          </div>
-        `,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
-      });
+      if (gpsAccuracy !== null && gpsAccuracy > 0) {
+        accuracyCircleRef.current = L.circle([userLat, userLng], {
+          radius: gpsAccuracy,
+          color: '#4285f4',
+          weight: 1,
+          opacity: 0.35,
+          fillColor: '#4285f4',
+          fillOpacity: 0.09,
+          interactive: false,
+        }).addTo(map);
+      }
+
+      const icon = buildUserDirectionIcon(heading);
 
       if (userMarkerRef.current) {
         userMarkerRef.current.setLatLng([userLat, userLng]);
+        userMarkerRef.current.setIcon(icon);
       } else {
-        userMarkerRef.current = L.marker([userLat, userLng], { icon: userIcon }).addTo(map);
+        userMarkerRef.current = L.marker([userLat, userLng], { icon }).addTo(map);
       }
     } else {
       if (userMarkerRef.current) {
@@ -269,37 +337,34 @@ export function MapView({
         userMarkerRef.current = null;
       }
     }
-  }, [map, userLat, userLng]);
+  }, [map, userLat, userLng, heading, gpsAccuracy]);
 
   // 6. Render Route Polyline
   useEffect(() => {
     const routeLayer = routeLayerRef.current;
     if (!map || !routeLayer) return;
 
-    // Clear existing route drawings
     routeLayer.clearLayers();
 
     if (!route || route.length < 2) {
-      // Route was cleared — reset the fitted-destination tracker
       lastFittedDestRef.current = null;
       return;
     }
 
     const coordinates = route.map((node) => [node.latitude, node.longitude] as [number, number]);
 
-    // Draw a premium glowing cyan dotted route to show the path clearly
     const routeCasing = L.polyline(coordinates, {
-      color: 'rgba(34, 211, 238, 0.22)', // Faint cyan glow casing
+      color: 'rgba(34, 211, 238, 0.22)',
       weight: 12,
       lineCap: 'round',
       lineJoin: 'round',
     });
 
     const routeCore = L.polyline(coordinates, {
-      color: '#22d3ee', // Bright Cyan accent color
+      color: '#22d3ee',
       weight: 6,
       opacity: 1.0,
-      dashArray: '0, 14', // Creates a sequence of perfect circular dots spaced 14px apart
+      dashArray: '0, 14',
       lineCap: 'round',
       lineJoin: 'round',
     });
@@ -307,15 +372,11 @@ export function MapView({
     routeLayer.addLayer(routeCasing);
     routeLayer.addLayer(routeCore);
 
-    // Only fit bounds when the DESTINATION changes (i.e. a new route is chosen).
-    // The last node in the route represents the destination.
     const destId = route[route.length - 1].id;
     if (destId !== lastFittedDestRef.current) {
       lastFittedDestRef.current = destId;
       map.fitBounds(routeCore.getBounds(), { padding: [60, 60] });
     }
-    // If destId is the same (GPS just updated our start position), do nothing —
-    // the user's current pan/zoom is preserved.
   }, [map, route]);
 
   // 7. Draw Graph Mesh (Admin only)
@@ -327,7 +388,6 @@ export function MapView({
 
     if (!showGraphMesh || nodes.length === 0) return;
 
-    // 1. Draw connecting edges
     edges.forEach((edge) => {
       const fromNode = nodes.find((n) => n.id === edge.from_node_id);
       const toNode = nodes.find((n) => n.id === edge.to_node_id);
@@ -338,7 +398,7 @@ export function MapView({
             [toNode.latitude, toNode.longitude],
           ],
           {
-            color: 'rgba(34, 211, 238, 0.45)', // cyan glow
+            color: 'rgba(34, 211, 238, 0.45)',
             weight: 2,
             dashArray: '5, 5',
           }
@@ -347,9 +407,8 @@ export function MapView({
       }
     });
 
-    // 2. Draw nodes dots
     nodes.forEach((node) => {
-      let color = '#94a3b8'; // default grey path
+      let color = '#94a3b8';
       if (node.type === 'entrance') color = '#22d3ee';
       else if (node.type === 'poi') color = '#a78bfa';
       else if (node.type === 'store') color = '#34d399';
@@ -362,22 +421,53 @@ export function MapView({
         weight: 1.5,
         fillOpacity: 0.9,
       }).bindTooltip(node.label, { permanent: false, direction: 'top' });
-
       meshLayer.addLayer(circle);
     });
   }, [map, showGraphMesh, nodes, edges]);
 
+  // Zoom Percentage calculation (Max Zoom = 20)
+  const zoomPercentage = Math.round((currentZoom / 20) * 100);
+
   return (
-    <div
-      ref={mapContainerRef}
-      className="map-container"
-      style={{
-        width: '100%',
-        height: '100%',
-        borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--color-border)',
-        overflow: 'hidden',
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={mapContainerRef}
+        className="map-container"
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border)',
+          overflow: 'hidden',
+        }}
+      />
+
+      {/* Floating Zoom Percentage Display Badge */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '14px',
+          right: '14px',
+          zIndex: 1000,
+          background: 'rgba(15, 23, 42, 0.82)',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          borderRadius: '20px',
+          padding: '4px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          color: '#fff',
+          fontSize: '0.75rem',
+          fontWeight: 700,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+          pointerEvents: 'none',
+          userSelect: 'none',
+        }}
+      >
+        <span style={{ opacity: 0.85, fontSize: '0.8rem' }}>🔍</span>
+        <span>{zoomPercentage}% Zoom</span>
+      </div>
+    </div>
   );
 }
