@@ -12,7 +12,7 @@ export class GPSKalmanFilter {
   private minAccuracy: number; // Minimum accuracy floor in meters
   private q: number;           // Process noise coefficient (m/s)
   private r: number;           // Measurement noise weight factor
-  
+
   private lat: number | null = null;
   private lng: number | null = null;
   private variance: number = -1; // Error covariance
