@@ -42,7 +42,6 @@ export function MapView3D({
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const lastFittedDestRef = useRef<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [currentZoom, setCurrentZoom] = useState<number>(zoom);
 
   // ── 1. Initialise MapLibre map (once on mount) ───────────────
   useEffect(() => {
@@ -64,10 +63,6 @@ export function MapView3D({
       new maplibregl.NavigationControl({ visualizePitch: true }),
       'bottom-right'
     );
-
-    m.on('zoom', () => {
-      setCurrentZoom(m.getZoom());
-    });
 
     m.on('error', (e) => console.error('[MapView3D]', e));
 
@@ -104,19 +99,22 @@ export function MapView3D({
       mapRef.current = null;
       storeMarkersRef.current = [];
       userMarkerRef.current = null;
-      setMapLoaded(false);
+      lastFittedDestRef.current = null;
     };
-  }, []); // Run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once — lat/lng on mount only
 
-  // ── 2. Update view center when parent explicitly re-centers ───
+  // ── 2. Re-centre when parent signals recenter (no active route) ─
   useEffect(() => {
     const m = mapRef.current;
-    if (m && mapLoaded && route.length === 0) {
-      m.flyTo({ center: [longitude, latitude], zoom, speed: 1.2 });
+    if (!m) return;
+    if (route.length === 0) {
+      m.flyTo({ center: [longitude, latitude], zoom, duration: 600 });
     }
-  }, [latitude, longitude, zoom, mapLoaded, route.length]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latitude, longitude]); // intentionally omit zoom/route
 
-  // ── 3. Render Store Markers ──────────────────────────────────
+  // ── 3. Store markers ─────────────────────────────────────────
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !mapLoaded) return;
@@ -125,64 +123,54 @@ export function MapView3D({
     storeMarkersRef.current = [];
 
     stores.forEach((store) => {
-      if (store.latitude === null || store.longitude === null) return;
+      if (!store.latitude || !store.longitude) return;
 
-      const isSchool =
-        store.id === 'kalawana-national-school-landmark' ||
-        store.name.toLowerCase().includes('kalawana');
-      const catColor = isSchool
-        ? '#a855f7'
-        : store.categories?.color || 'var(--color-primary)';
       const isDestination =
         route.length > 0 && route[route.length - 1].store_id === store.id;
+      const catColor = store.categories?.color || '#6366f1';
 
       const el = document.createElement('div');
-      el.className = 'custom-map-pin-wrapper';
-      el.style.cssText =
-        'position:relative;display:flex;align-items:center;justify-content:center;width:34px;height:34px;cursor:pointer;';
-      el.innerHTML = `
-        ${
-          isDestination || isSchool
-            ? `<div style="position:absolute;width:48px;height:48px;border-radius:50%;background:${catColor};opacity:0.4;animation:map-pin-pulse 1.8s infinite ease-in-out;"></div>`
-            : ''
-        }
-        <div style="width:30px;height:30px;border-radius:50%;background:${catColor};border:2.5px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:${
-          isSchool ? '0.9rem' : '0.75rem'
-        };font-weight:800;z-index:10;overflow:hidden;">
-          ${
-            isSchool
-              ? '🏫'
-              : store.logo_url
-              ? `<img src="${store.logo_url}" alt="${store.name}" style="width:100%;height:100%;object-fit:cover;display:block;" />`
-              : store.name[0]
-          }
-        </div>
+      el.style.cssText = `
+        width:${isDestination ? 36 : 28}px;
+        height:${isDestination ? 36 : 28}px;
+        border-radius:50%;
+        background:${catColor};
+        border:2.5px solid #fff;
+        box-shadow:${isDestination ? `0 0 0 5px ${catColor}44,` : ''}0 2px 8px rgba(0,0,0,0.65);
+        display:flex;align-items:center;justify-content:center;
+        color:#fff;font-size:0.68rem;font-weight:800;
+        cursor:pointer;overflow:hidden;
+        transition:transform 0.15s;
       `;
+      if (store.logo_url) {
+        const img = document.createElement('img');
+        img.src = store.logo_url;
+        img.alt = store.name;
+        img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+        el.appendChild(img);
+      } else {
+        el.textContent = store.name?.[0]?.toUpperCase() ?? '?';
+      }
 
-      const popupHtml = `
-        <div style="color:#0b0f1a;padding:0.3rem;font-family:sans-serif;min-width:160px;">
-          <h4 style="margin:0 0 0.25rem 0;font-weight:800;font-size:0.95rem;line-height:1.2;">${
-            store.name
-          }</h4>
-          <p style="margin:0 0 0.5rem 0;font-size:0.75rem;color:#64748b;">
-            ${
-              isSchool
-                ? 'GCP2+5C6, Kalawana · Sri Lanka'
-                : `Floor: ${store.floor || '1'} · ${
-                    store.categories?.name || 'Exhibitor'
-                  }`
-            }
-          </p>
-          ${
-            isSchool
-              ? `<span style="display:block;background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;padding:0.4rem;border-radius:6px;font-size:0.75rem;font-weight:700;text-align:center;">🏫 3D Kalawana Landmark</span>`
-              : `<a href="/stores/${store.id}" style="display:block;background:#6366f1;color:#fff;padding:0.35rem;border-radius:4px;font-size:0.75rem;font-weight:700;text-decoration:none;text-align:center;">View Profile</a>`
-          }
-        </div>
-      `;
+      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.25)'; });
+      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
 
-      const popup = new maplibregl.Popup({ offset: 20 }).setHTML(popupHtml);
-      const marker = new maplibregl.Marker({ element: el })
+      const popup = new maplibregl.Popup({ offset: 20, closeButton: false })
+        .setHTML(`
+          <div style="color:#0b0f1a;font-family:sans-serif;min-width:130px;padding:0.1rem;">
+            <h4 style="margin:0 0 0.2rem;font-weight:800;font-size:0.9rem;">${store.name}</h4>
+            <p style="margin:0 0 0.4rem;font-size:0.72rem;color:#64748b;">
+              Floor ${store.floor || '1'} · ${store.categories?.name || 'Exhibitor'}
+            </p>
+            <a href="/stores/${store.id}"
+              style="display:block;background:#6366f1;color:#fff;padding:0.3rem;border-radius:4px;
+                     font-size:0.72rem;font-weight:700;text-decoration:none;text-align:center;">
+              View Profile
+            </a>
+          </div>
+        `);
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([store.longitude, store.latitude])
         .setPopup(popup)
         .addTo(m);
@@ -191,7 +179,7 @@ export function MapView3D({
     });
   }, [mapLoaded, stores, route]);
 
-  // ── 4. Render User Location Marker ───────────────────────────
+  // ── 4. User location marker ──────────────────────────────────
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !mapLoaded) return;
@@ -201,159 +189,149 @@ export function MapView3D({
         userMarkerRef.current.setLngLat([userLng, userLat]);
       } else {
         const el = document.createElement('div');
-        el.style.cssText = 'position:relative;width:14px;height:14px;';
-        el.innerHTML = `
-          <div style="width:14px;height:14px;border-radius:50%;background:#22d3ee;border:2px solid #fff;box-shadow:0 0 6px rgba(34,211,238,0.6);"></div>
-          <div class="mv3d-user-dot" style="position:absolute;inset:-8px;border-radius:50%;border:2px solid rgba(34,211,238,0.4);"></div>
+        el.className = 'mv3d-user-dot';
+        el.style.cssText = `
+          width:14px;height:14px;border-radius:50%;
+          background:#22d3ee;border:2px solid #fff;
+          box-shadow:0 0 6px rgba(34,211,238,0.6);
         `;
-        userMarkerRef.current = new maplibregl.Marker({ element: el })
+        userMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([userLng, userLat])
           .addTo(m);
       }
     } else {
-      if (userMarkerRef.current) {
-        userMarkerRef.current.remove();
-        userMarkerRef.current = null;
-      }
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
     }
   }, [mapLoaded, userLat, userLng]);
 
-  // ── 5. Render Route Polyline ──────────────────────────────────
+  // ── 5. Route polyline ────────────────────────────────────────
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !mapLoaded) return;
 
-    const sourceId = 'route-source';
-    const casingId = 'route-casing-layer';
-    const coreId = 'route-core-layer';
+    const SRC = 'route3d';
+    const CASING = 'route3d-casing';
+    const CORE = 'route3d-core';
 
-    if (m.getLayer(coreId)) m.removeLayer(coreId);
-    if (m.getLayer(casingId)) m.removeLayer(casingId);
-    if (m.getSource(sourceId)) m.removeSource(sourceId);
-
-    if (!route || route.length < 2) {
+    if (route.length < 2) {
+      if (m.getLayer(CORE)) m.removeLayer(CORE);
+      if (m.getLayer(CASING)) m.removeLayer(CASING);
+      if (m.getSource(SRC)) m.removeSource(SRC);
       lastFittedDestRef.current = null;
       return;
     }
 
-    const coords = route.map((n) => [n.longitude, n.latitude]);
-
-    const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'LineString', coordinates: coords },
+    const coords: [number, number][] = route.map((n) => [n.longitude, n.latitude]);
+    const geojson = {
+      type: 'FeatureCollection' as const,
+      features: [{
+        type: 'Feature' as const,
+        properties: {},
+        geometry: { type: 'LineString' as const, coordinates: coords },
+      }],
     };
 
-    m.addSource(sourceId, { type: 'geojson', data: geojson });
+    if (m.getSource(SRC)) {
+      (m.getSource(SRC) as maplibregl.GeoJSONSource).setData(geojson);
+    } else {
+      m.addSource(SRC, { type: 'geojson', data: geojson });
+      m.addLayer({
+        id: CASING,
+        type: 'line',
+        source: SRC,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#4f46e5', 'line-width': 12, 'line-opacity': 0.35 },
+      });
+      m.addLayer({
+        id: CORE,
+        type: 'line',
+        source: SRC,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#6366f1', 'line-width': 6, 'line-opacity': 1.0 },
+      });
+    }
 
-    m.addLayer({
-      id: casingId,
-      type: 'line',
-      source: sourceId,
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': '#22d3ee', 'line-width': 14, 'line-opacity': 0.2 },
-    });
-
-    m.addLayer({
-      id: coreId,
-      type: 'line',
-      source: sourceId,
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: {
-        'line-color': '#22d3ee',
-        'line-width': 6,
-        'line-dasharray': [0, 2],
-      },
-    });
-
+    // Fit bounds only when destination changes
     const destId = route[route.length - 1].id;
     if (destId !== lastFittedDestRef.current) {
       lastFittedDestRef.current = destId;
-      const bounds = coords.reduce(
-        (b, c) => b.extend(c as [number, number]),
-        new maplibregl.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number])
+      const lngs = coords.map((c) => c[0]);
+      const lats = coords.map((c) => c[1]);
+      m.fitBounds(
+        [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+        { padding: 80, duration: 900 }
       );
-      m.fitBounds(bounds, { padding: 80, maxZoom: 19 });
     }
   }, [mapLoaded, route]);
 
-  // ── 6. Render Graph Mesh (Admin only) ─────────────────────────
+  // ── 6. Graph mesh (admin) ────────────────────────────────────
   useEffect(() => {
     const m = mapRef.current;
     if (!m || !mapLoaded) return;
 
-    const sourceId = 'mesh-source';
-    ['mesh-edges', 'mesh-nodes'].forEach((id) => {
-      if (m.getLayer(id)) m.removeLayer(id);
-    });
-    if (m.getSource(sourceId)) m.removeSource(sourceId);
+    if (m.getLayer('mesh-nodes')) m.removeLayer('mesh-nodes');
+    if (m.getLayer('mesh-edges')) m.removeLayer('mesh-edges');
+    if (m.getSource('mesh')) m.removeSource('mesh');
 
     if (!showGraphMesh || nodes.length === 0) return;
 
-    const features: GeoJSON.Feature[] = [];
-
-    edges.forEach((edge) => {
-      const fromN = nodes.find((n) => n.id === edge.from_node_id);
-      const toN = nodes.find((n) => n.id === edge.to_node_id);
-      if (fromN && toN) {
-        features.push({
-          type: 'Feature',
-          properties: { kind: 'edge' },
+    const edgeFeatures = edges
+      .map((edge) => {
+        const from = nodes.find((n) => n.id === edge.from_node_id);
+        const to = nodes.find((n) => n.id === edge.to_node_id);
+        if (!from || !to) return null;
+        return {
+          type: 'Feature' as const,
+          properties: {},
           geometry: {
-            type: 'LineString',
-            coordinates: [
-              [fromN.longitude, fromN.latitude],
-              [toN.longitude, toN.latitude],
-            ],
+            type: 'LineString' as const,
+            coordinates: [[from.longitude, from.latitude], [to.longitude, to.latitude]],
           },
-        });
-      }
-    });
+        };
+      })
+      .filter(Boolean);
 
-    nodes.forEach((n) => {
-      features.push({
-        type: 'Feature',
-        properties: { kind: 'node', label: n.label, type: n.type },
-        geometry: { type: 'Point', coordinates: [n.longitude, n.latitude] },
-      });
-    });
+    const nodeFeatures = nodes.map((node) => ({
+      type: 'Feature' as const,
+      properties: { type: node.type, label: node.label },
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [node.longitude, node.latitude],
+      },
+    }));
 
-    m.addSource(sourceId, {
+    m.addSource('mesh', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features },
+      data: {
+        type: 'FeatureCollection',
+        features: [...edgeFeatures, ...nodeFeatures] as never[],
+      },
     });
-
     m.addLayer({
       id: 'mesh-edges',
       type: 'line',
-      source: sourceId,
-      filter: ['==', ['get', 'kind'], 'edge'],
+      source: 'mesh',
+      filter: ['==', ['geometry-type'], 'LineString'],
       paint: {
-        'line-color': '#22d3ee',
+        'line-color': 'rgba(34,211,238,0.45)',
         'line-width': 2,
-        'line-dasharray': [2, 2],
-        'line-opacity': 0.5,
+        'line-dasharray': [5, 5],
       },
     });
-
     m.addLayer({
       id: 'mesh-nodes',
       type: 'circle',
-      source: sourceId,
-      filter: ['==', ['get', 'kind'], 'node'],
+      source: 'mesh',
+      filter: ['==', ['geometry-type'], 'Point'],
       paint: {
         'circle-radius': 5.5,
         'circle-color': [
-          'match',
-          ['get', 'type'],
-          'entrance',
-          '#22d3ee',
-          'poi',
-          '#a78bfa',
-          'store',
-          '#34d399',
-          'emergency',
-          '#f43f5e',
+          'match', ['get', 'type'],
+          'entrance', '#22d3ee',
+          'poi', '#a78bfa',
+          'store', '#34d399',
+          'emergency', '#f43f5e',
           '#94a3b8',
         ],
         'circle-stroke-width': 1.5,
@@ -363,11 +341,8 @@ export function MapView3D({
     });
   }, [mapLoaded, showGraphMesh, nodes, edges]);
 
-  // Zoom Percentage calculation (Max Zoom = 20)
-  const zoomPercentage = Math.round((currentZoom / 20) * 100);
-
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <>
       {/* Pulsing animation for user dot */}
       <style>{`
         .mv3d-user-dot {
@@ -389,7 +364,6 @@ export function MapView3D({
         .mv3d-wrap .maplibregl-ctrl-group button span { filter: invert(1) !important; }
         .mv3d-wrap .maplibregl-ctrl-compass { filter: invert(1) !important; }
       `}</style>
-
       <div
         ref={containerRef}
         className="mv3d-wrap"
@@ -401,33 +375,6 @@ export function MapView3D({
           overflow: 'hidden',
         }}
       />
-
-      {/* Floating Zoom Percentage Display Badge */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '14px',
-          right: '14px',
-          zIndex: 1000,
-          background: 'rgba(15, 23, 42, 0.82)',
-          backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: '20px',
-          padding: '4px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: '#fff',
-          fontSize: '0.75rem',
-          fontWeight: 700,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
-          pointerEvents: 'none',
-          userSelect: 'none',
-        }}
-      >
-        <span style={{ opacity: 0.85, fontSize: '0.8rem' }}>🔍</span>
-        <span>{zoomPercentage}% Zoom</span>
-      </div>
-    </div>
+    </>
   );
 }
