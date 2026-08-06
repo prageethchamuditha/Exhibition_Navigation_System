@@ -54,6 +54,7 @@ export function MapPage() {
   // Geolocation tracking state
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
+  const [userHeading, setUserHeading] = useState<number | null>(null);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // metres
   const [snappedToNode, setSnappedToNode] = useState<string | null>(null); // label of entrance used as fallback start
   const [, setGpsError] = useState<string | null>(null);
@@ -211,12 +212,45 @@ export function MapPage() {
     }
   }
 
+  // Device orientation / compass callback for direction tracking
+  const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
+    const e = event as any;
+    if (e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
+      setUserHeading(e.webkitCompassHeading);
+    } else if (event.alpha !== null) {
+      setUserHeading(360 - event.alpha);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+    return () => {
+      window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.removeEventListener('deviceorientation', handleOrientation, true);
+    };
+  }, [handleOrientation]);
+
   // Geolocation trigger
   function startLocationTracking() {
     if (!navigator.geolocation) {
       setGpsError('Geolocation is not supported by your browser.');
       setMockMode(true);
       return;
+    }
+
+    // Trigger iOS orientation permission request if available
+    const DeviceEvent = window.DeviceOrientationEvent as any;
+    if (DeviceEvent && typeof DeviceEvent.requestPermission === 'function') {
+      DeviceEvent.requestPermission()
+        .then((state: string) => {
+          if (state === 'granted') {
+            console.log('Compass permission granted on auto-start');
+          }
+        })
+        .catch((err: any) => console.warn('Compass permission auto-start request ignored/rejected:', err));
     }
 
     geoWatchIdRef.current = navigator.geolocation.watchPosition(
@@ -493,6 +527,18 @@ export function MapPage() {
 
 
   const handleRecenterLocation = () => {
+    // Explicitly request iOS orientation permission on user gesture (click)
+    const DeviceEvent = window.DeviceOrientationEvent as any;
+    if (DeviceEvent && typeof DeviceEvent.requestPermission === 'function') {
+      DeviceEvent.requestPermission()
+        .then((state: string) => {
+          if (state === 'granted') {
+            console.log('Compass permission granted via Recenter click gesture');
+          }
+        })
+        .catch(console.error);
+    }
+
     if (!mockMode && userLat !== null && userLng !== null) {
       setMapCenterLat(userLat);
       setMapCenterLng(userLng);
@@ -706,6 +752,7 @@ export function MapPage() {
               stores={stores}
               userLat={mockMode ? null : userLat}
               userLng={mockMode ? null : userLng}
+              userHeading={mockMode ? null : userHeading}
               route={calculatedRoute}
               theme={mapTheme as 'dark' | 'streets' | 'light'}
               showGraphMesh={showMesh}

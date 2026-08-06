@@ -28,7 +28,14 @@ export function GPSPermissionBanner({ onDismiss }: GPSPermissionBannerProps) {
             <button
               className="btn btn-sm btn-ghost"
               style={{ marginTop: '0.6rem' }}
-              onClick={requestPermission}
+              onClick={() => {
+                // Request orientation permissions on user gesture
+                const DeviceEvent = window.DeviceOrientationEvent as any;
+                if (DeviceEvent && typeof DeviceEvent.requestPermission === 'function') {
+                  DeviceEvent.requestPermission().catch(console.error);
+                }
+                requestPermission();
+              }}
             >
               <MapPin size={14} />
               Enable GPS

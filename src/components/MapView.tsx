@@ -18,6 +18,7 @@ interface MapViewProps {
   stores?: Store[];
   userLat?: number | null;
   userLng?: number | null;
+  userHeading?: number | null;
   route?: NavigationNode[];
   theme?: 'dark' | 'streets' | 'light';
   showGraphMesh?: boolean;
@@ -32,6 +33,7 @@ export function MapView({
   stores = [],
   userLat = null,
   userLng = null,
+  userHeading = null,
   route = [],
   theme = 'dark',
   showGraphMesh = false,
@@ -40,6 +42,7 @@ export function MapView({
 }: MapViewProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<L.Map | null>(null);
+  const [currentZoom, setCurrentZoom] = useState(zoom);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.FeatureGroup | null>(null);
   const meshLayerRef = useRef<L.FeatureGroup | null>(null);
@@ -59,6 +62,14 @@ export function MapView({
       zoom,
       zoomControl: true,
       attributionControl: false,
+    });
+
+    // Add scale bar control
+    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(newMap);
+
+    // Track zoom end
+    newMap.on('zoomend', () => {
+      setCurrentZoom(newMap.getZoom());
     });
 
     // Create Layer groups
@@ -228,15 +239,31 @@ export function MapView({
     });
   }, [map, stores, route]);
 
-  // 5. Render User Location Marker
+  // 5. Render User Location Marker (with Direction Cone)
   useEffect(() => {
     if (!map) return;
 
     if (userLat !== null && userLng !== null) {
+      const hasHeading = userHeading !== null && userHeading !== undefined;
+
       const userIcon = L.divIcon({
         className: 'user-map-pin',
         html: `
           <div style="position: relative;">
+            ${hasHeading ? `
+              <div class="user-direction-cone" style="
+                position: absolute;
+                width: 80px;
+                height: 80px;
+                top: -33px;
+                left: -33px;
+                background: conic-gradient(from 335deg, transparent 0deg, rgba(34, 211, 238, 0.4) 25deg, transparent 50deg, transparent 360deg);
+                border-radius: 50%;
+                transform: rotate(${userHeading}deg);
+                pointer-events: none;
+                z-index: -1;
+              "></div>
+            ` : ''}
             <div style="
               width: 14px;
               height: 14px;
@@ -260,6 +287,7 @@ export function MapView({
 
       if (userMarkerRef.current) {
         userMarkerRef.current.setLatLng([userLat, userLng]);
+        userMarkerRef.current.setIcon(userIcon);
       } else {
         userMarkerRef.current = L.marker([userLat, userLng], { icon: userIcon }).addTo(map);
       }
@@ -269,7 +297,7 @@ export function MapView({
         userMarkerRef.current = null;
       }
     }
-  }, [map, userLat, userLng]);
+  }, [map, userLat, userLng, userHeading]);
 
   // 6. Render Route Polyline
   useEffect(() => {
@@ -368,16 +396,43 @@ export function MapView({
   }, [map, showGraphMesh, nodes, edges]);
 
   return (
-    <div
-      ref={mapContainerRef}
-      className="map-container"
-      style={{
-        width: '100%',
-        height: '100%',
-        borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--color-border)',
-        overflow: 'hidden',
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={mapContainerRef}
+        className="map-container"
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-border)',
+          overflow: 'hidden',
+        }}
+      />
+      {map && (
+        <div style={{
+          position: 'absolute',
+          bottom: '16px',
+          right: '16px',
+          background: 'rgba(11, 15, 26, 0.85)',
+          backdropFilter: 'blur(4px)',
+          border: '1px solid var(--color-border)',
+          padding: '4px 8px',
+          borderRadius: '6px',
+          fontSize: '0.72rem',
+          fontWeight: '700',
+          color: 'var(--color-text)',
+          zIndex: 1000,
+          pointerEvents: 'none',
+          letterSpacing: '0.04em',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}>
+          <span style={{ color: 'var(--color-accent)' }}>ZOOM:</span>
+          <span>{currentZoom.toFixed(1)}x</span>
+        </div>
+      )}
+    </div>
   );
 }
