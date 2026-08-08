@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { RealtimeAnnouncements } from './components/RealtimeAnnouncements';
+import { LiveBroadcastBanner } from './components/LiveBroadcastBanner';
 import './index.css';
 
 // Lazy load page components to improve initial loading performance
@@ -46,6 +47,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <RealtimeAnnouncements />
+        <LiveBroadcastBanner />
         <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public routes */}

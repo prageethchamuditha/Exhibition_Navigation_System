@@ -2730,3 +2730,23 @@ html, body, #root {
   font-size: 0.65rem !important;
   padding: 2px 5px !important;
 }
+
+/* ── Live broadcast pulsing red indicator ───────────── */
+@keyframes live-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.live-dot-pulse {
+  animation: live-pulse 2s infinite ease-in-out;
+}

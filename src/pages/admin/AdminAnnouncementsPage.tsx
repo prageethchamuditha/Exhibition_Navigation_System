@@ -16,6 +16,12 @@ export function AdminAnnouncementsPage() {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Broadcast states
+  const [broadcastId, setBroadcastId] = useState<string | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [isLive, setIsLive] = useState(false);
+  const [broadcastingLoading, setBroadcastingLoading] = useState(false);
+
   useEffect(() => {
     fetchAnnouncements();
   }, []);
@@ -28,6 +34,18 @@ export function AdminAnnouncementsPage() {
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
+
+      // Extract current live broadcast status
+      const broadcast = data?.find((a) => a.type === 'broadcast');
+      if (broadcast) {
+        setBroadcastId(broadcast.id);
+        setIsLive(broadcast.is_active);
+        setYoutubeUrl(broadcast.message);
+      } else {
+        setBroadcastId(null);
+        setIsLive(false);
+      }
+
       setAnnouncements(data || []);
     } catch (err) {
       console.error('Error fetching announcements:', err);
@@ -35,6 +53,76 @@ export function AdminAnnouncementsPage() {
       setLoading(false);
     }
   }
+
+  function extractYoutubeId(urlOrId: string): string | null {
+    if (!urlOrId) return null;
+    const clean = urlOrId.trim();
+    if (clean.length === 11 && !clean.includes('/') && !clean.includes('?')) {
+      return clean;
+    }
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|live\/)([^#\&\?]*).*/;
+    const match = clean.match(regExp);
+    return match && match[2].length === 11 ? match[2] : null;
+  }
+
+  const handleToggleBroadcast = async () => {
+    if (!user) return;
+    setBroadcastingLoading(true);
+    try {
+      if (isLive) {
+        // Stop broadcast
+        if (broadcastId) {
+          const { error } = await supabase
+            .from('announcements')
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq('id', broadcastId);
+          if (error) throw error;
+          setIsLive(false);
+        }
+      } else {
+        // Start broadcast
+        const ytId = extractYoutubeId(youtubeUrl);
+        if (!ytId) {
+          alert('Please enter a valid YouTube Video ID or Live URL.');
+          return;
+        }
+
+        const payload = {
+          title: 'Live Voice Broadcast',
+          message: ytId,
+          type: 'broadcast',
+          is_active: true,
+          created_by: user.id,
+        };
+
+        if (broadcastId) {
+          // Update existing
+          const { error } = await supabase
+            .from('announcements')
+            .update({ ...payload, updated_at: new Date().toISOString() })
+            .eq('id', broadcastId);
+          if (error) throw error;
+        } else {
+          // Insert new
+          const { data, error } = await supabase
+            .from('announcements')
+            .insert(payload)
+            .select();
+          if (error) throw error;
+          if (data && data[0]) {
+            setBroadcastId(data[0].id);
+          }
+        }
+        setIsLive(true);
+      }
+      fetchAnnouncements();
+    } catch (err) {
+      console.error('Error toggling broadcast:', err);
+      alert(err instanceof Error ? err.message : 'Broadcast toggle failed');
+    } finally {
+      setBroadcastingLoading(false);
+    }
+  };
 
   const handleOpenAdd = () => {
     setCurrentAnnouncement({
@@ -147,18 +235,90 @@ export function AdminAnnouncementsPage() {
         </button>
       </header>
 
+      {/* Voice Broadcast Manager Card */}
+      <section
+        className="glass"
+        style={{
+          padding: '1.5rem',
+          marginBottom: '2rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem',
+          borderLeft: `6px solid ${isLive ? '#ef4444' : 'var(--color-border)'}`,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div
+              className={isLive ? 'live-dot-pulse' : ''}
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                backgroundColor: isLive ? '#ef4444' : 'var(--color-muted)',
+              }}
+            />
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Online Voice Broadcast (YouTube)</h2>
+          </div>
+          {isLive && (
+            <span
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#f87171',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                letterSpacing: '0.05em',
+              }}
+            >
+              LIVE BROADCAST ACTIVE
+            </span>
+          )}
+        </div>
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: 0 }}>
+          Broadcast your voice live from your device microphone to all visitors. Stream via OBS Studio or YouTube web cam to get your Live URL, then input it below.
+        </p>
+
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            className="form-input"
+            style={{ flex: 1, minWidth: '250px' }}
+            disabled={isLive || broadcastingLoading}
+            value={youtubeUrl}
+            onChange={(e) => setYoutubeUrl(e.target.value)}
+            placeholder="Paste YouTube Live URL or 11-character Video ID (e.g., watch?v=dQw4w9WgXcQ)"
+          />
+          <button
+            className={`btn ${isLive ? 'btn-danger' : 'btn-primary'}`}
+            onClick={handleToggleBroadcast}
+            disabled={broadcastingLoading || (!isLive && !youtubeUrl.trim())}
+            style={{ minWidth: '160px' }}
+          >
+            {broadcastingLoading ? (
+              <span className="spinner" />
+            ) : isLive ? (
+              'Stop Broadcast'
+            ) : (
+              'Start Broadcast'
+            )}
+          </button>
+        </div>
+      </section>
+
       {/* Grid of announcements */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {loading ? (
           Array.from({ length: 2 }).map((_, i) => (
             <div key={i} className="glass skeleton" style={{ height: '120px', width: '100%' }} />
           ))
-        ) : announcements.length === 0 ? (
+        ) : announcements.filter((a) => a.type !== 'broadcast').length === 0 ? (
           <div className="glass" style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-muted)' }}>
             No announcements created yet.
           </div>
         ) : (
-          announcements.map((ann) => (
+          announcements.filter((a) => a.type !== 'broadcast').map((ann) => (
             <div
               key={ann.id}
               className="glass"
