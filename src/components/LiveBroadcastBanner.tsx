@@ -215,26 +215,38 @@ export function LiveBroadcastBanner() {
         iOS Safari freezes player if width/height is too small or if it is offscreen/hidden.
         We keep it 200px x 120px and position it layered behind the viewport elements using zIndex.
       */}
+      {/* 
+        Always-in-DOM YouTube Iframe for iOS gesture tracking compatibility.
+        To play audio on iOS Safari without pausing, the player must be in the viewport and have dimensions.
+        We place the 200px iframe inside a 2px x 2px container with overflow hidden, fixed at the top-left,
+        making it 100% invisible to the user while keeping it fully active for Safari/Chrome.
+      */}
       {youtubeId && (
-        <iframe
-          ref={iframeRef}
-          width="200"
-          height="120"
-          src="about:blank"
-          title="Live Broadcast Audio Stream"
-          allow="autoplay; encrypted-media"
+        <div
           style={{
             position: 'fixed',
-            top: '10px',
-            left: '10px',
-            width: '200px',
-            height: '120px',
+            top: '0px',
+            left: '0px',
+            width: '2px',
+            height: '2px',
+            overflow: 'hidden',
             zIndex: -1000,
             pointerEvents: 'none',
             opacity: 0.99,
-            border: 'none',
           }}
-        />
+        >
+          <iframe
+            ref={iframeRef}
+            width="200"
+            height="200"
+            src="about:blank"
+            title="Live Broadcast Audio Stream"
+            allow="autoplay; encrypted-media"
+            style={{
+              border: 'none',
+            }}
+          />
+        </div>
       )}
     </div>
   );
