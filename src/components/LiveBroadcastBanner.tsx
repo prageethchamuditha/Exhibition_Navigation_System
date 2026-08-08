@@ -28,9 +28,9 @@ export function LiveBroadcastBanner() {
             const ann = payload.new as Announcement;
             if (ann.type === 'broadcast') {
               if (ann.is_active) {
-                // Check if visitor dismissed this specific broadcast before
-                const dismissedId = sessionStorage.getItem('dismissed_broadcast_id');
-                if (dismissedId !== ann.id) {
+                // Check if visitor dismissed this specific broadcast run before
+                const dismissedTime = sessionStorage.getItem('dismissed_broadcast_time');
+                if (dismissedTime !== ann.updated_at) {
                   setActiveBroadcast(ann);
                   setIsDismissed(false);
                 }
@@ -66,8 +66,8 @@ export function LiveBroadcastBanner() {
       if (error) throw error;
       if (data && data.length > 0) {
         const b = data[0];
-        const dismissedId = sessionStorage.getItem('dismissed_broadcast_id');
-        if (dismissedId !== b.id) {
+        const dismissedTime = sessionStorage.getItem('dismissed_broadcast_time');
+        if (dismissedTime !== b.updated_at) {
           setActiveBroadcast(b);
         }
       }
@@ -92,7 +92,7 @@ export function LiveBroadcastBanner() {
 
   const handleDismiss = () => {
     if (activeBroadcast) {
-      sessionStorage.setItem('dismissed_broadcast_id', activeBroadcast.id);
+      sessionStorage.setItem('dismissed_broadcast_time', activeBroadcast.updated_at);
     }
     setIsDismissed(true);
     setIsPlaying(false);
