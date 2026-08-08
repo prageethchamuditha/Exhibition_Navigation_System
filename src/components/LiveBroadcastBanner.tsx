@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Megaphone, Volume2, VolumeX, X } from 'lucide-react';
 import { supabase, type Announcement } from '../lib/supabase';
 
@@ -6,6 +6,7 @@ export function LiveBroadcastBanner() {
   const [activeBroadcast, setActiveBroadcast] = useState<Announcement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     fetchActiveBroadcast();
@@ -77,10 +78,16 @@ export function LiveBroadcastBanner() {
 
   const handleListen = () => {
     setIsPlaying(true);
+    if (iframeRef.current && youtubeId) {
+      iframeRef.current.src = `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=0&controls=0&playsinline=1&enablejsapi=1`;
+    }
   };
 
   const handleMute = () => {
     setIsPlaying(false);
+    if (iframeRef.current) {
+      iframeRef.current.src = 'about:blank';
+    }
   };
 
   const handleDismiss = () => {
@@ -89,11 +96,21 @@ export function LiveBroadcastBanner() {
     }
     setIsDismissed(true);
     setIsPlaying(false);
+    if (iframeRef.current) {
+      iframeRef.current.src = 'about:blank';
+    }
   };
 
   if (!activeBroadcast || isDismissed) return null;
 
   const youtubeId = activeBroadcast.message;
+
+  // React to realtime broadcast updates if the user is already listening
+  useEffect(() => {
+    if (isPlaying && iframeRef.current && youtubeId) {
+      iframeRef.current.src = `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=0&controls=0&playsinline=1&enablejsapi=1`;
+    }
+  }, [youtubeId, isPlaying]);
 
   return (
     <div
@@ -193,26 +210,31 @@ export function LiveBroadcastBanner() {
         </button>
       </div>
 
-      {/* Hidden 1px by 1px YouTube embed to stream audio in the background */}
-      {isPlaying && youtubeId && (
-        <div
+      {/* 
+        Always-in-DOM YouTube Iframe for iOS gesture tracking compatibility.
+        iOS Safari freezes player if width/height is too small or if it is offscreen/hidden.
+        We keep it 200px x 120px and position it layered behind the viewport elements using zIndex.
+      */}
+      {youtubeId && (
+        <iframe
+          ref={iframeRef}
+          width="200"
+          height="120"
+          src="about:blank"
+          title="Live Broadcast Audio Stream"
+          allow="autoplay; encrypted-media"
           style={{
-            position: 'absolute',
-            width: '1px',
-            height: '1px',
-            left: '-9999px',
-            opacity: 0.01,
+            position: 'fixed',
+            top: '10px',
+            left: '10px',
+            width: '200px',
+            height: '120px',
+            zIndex: -1000,
             pointerEvents: 'none',
+            opacity: 0.99,
+            border: 'none',
           }}
-        >
-          <iframe
-            width="200"
-            height="200"
-            src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=0&controls=0&playsinline=1&enablejsapi=1`}
-            title="Live Broadcast Audio Stream"
-            allow="autoplay; encrypted-media"
-          />
-        </div>
+        />
       )}
     </div>
   );
