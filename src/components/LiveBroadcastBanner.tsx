@@ -101,9 +101,7 @@ export function LiveBroadcastBanner() {
     }
   };
 
-  if (!activeBroadcast || isDismissed) return null;
-
-  const youtubeId = activeBroadcast.message;
+  const youtubeId = activeBroadcast?.message || '';
 
   // React to realtime broadcast updates if the user is already listening
   useEffect(() => {
@@ -111,6 +109,8 @@ export function LiveBroadcastBanner() {
       iframeRef.current.src = `https://www.youtube.com/embed/${youtubeId}?autoplay=1&mute=0&controls=0&playsinline=1&enablejsapi=1`;
     }
   }, [youtubeId, isPlaying]);
+
+  if (!activeBroadcast || isDismissed) return null;
 
   return (
     <div
