@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // MapLibre GL v6 + Vite: must set worker URL before any Map instance is created.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { type Store, type NavigationNode, type NavigationEdge } from '../lib/supabase';
-import { createKalawanaSchool3DLayer } from './KalawanaSchool3DLayer';
+import { createKalawanaSchool3DLayer, fetchCalibrationFromSupabase } from './KalawanaSchool3DLayer';
 
 // Register worker — safe to call multiple times (idempotent)
 maplibregl.setWorkerUrl(workerUrl as unknown as string);
@@ -88,7 +88,15 @@ export function MapView3D({
 
       // ── Three.js Kalawana National School 3D Layer ──────────
       if (!m.getLayer('kalawana-school-3d')) {
-        m.addLayer(createKalawanaSchool3DLayer('kalawana-school-3d'));
+        const layer = createKalawanaSchool3DLayer('kalawana-school-3d');
+        m.addLayer(layer);
+
+        // Sync global calibration from Supabase database for cross-browser consistency
+        fetchCalibrationFromSupabase().then((remoteConfig) => {
+          if (remoteConfig) {
+            layer.setCalibration(remoteConfig, false);
+          }
+        });
       }
 
       setMapLoaded(true);

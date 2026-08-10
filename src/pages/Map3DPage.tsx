@@ -4,10 +4,15 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { ArrowLeft, Layers, RotateCcw, ZoomIn, ZoomOut, GraduationCap, Navigation, MapPin, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase, type Store } from '../lib/supabase';
 import {
   createKalawanaSchool3DLayer,
   getSavedCalibration,
+  saveCalibration,
+  saveCalibrationToSupabase,
+  fetchCalibrationFromSupabase,
+  DEFAULT_CALIBRATION,
   type KalawanaCustomLayerInterface,
   type CalibrationConfig,
 } from '../components/KalawanaSchool3DLayer';
@@ -25,9 +30,10 @@ const SCHOOL_BEARING = -15;
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 
-
-
 export function Map3DPage() {
+  const { profile } = useAuth();
+  const isMainAdmin = profile?.role === 'admin';
+
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const customLayerRef = useRef<KalawanaCustomLayerInterface | null>(null);
@@ -38,12 +44,76 @@ export function Map3DPage() {
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
 
   // Calibration state
+  const [savedCalibration, setSavedCalibration] = useState<CalibrationConfig>(getSavedCalibration());
   const [calibration, setCalibration] = useState<CalibrationConfig>(getSavedCalibration());
+  const initialSavedRef = useRef<CalibrationConfig>(getSavedCalibration());
   const [showCalibrationModal, setShowCalibrationModal] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync calibration from Supabase database on mount for cross-browser consistency
+  useEffect(() => {
+    fetchCalibrationFromSupabase().then((remoteConfig) => {
+      if (remoteConfig) {
+        setSavedCalibration(remoteConfig);
+        setCalibration(remoteConfig);
+        initialSavedRef.current = remoteConfig;
+        customLayerRef.current?.setCalibration(remoteConfig, false);
+      }
+    });
+  }, []);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleOpenCalibration = () => {
+    if (!isMainAdmin) return;
+    const currentSaved = getSavedCalibration();
+    initialSavedRef.current = currentSaved;
+    setSavedCalibration(currentSaved);
+    const activeConfig = { ...currentSaved, showSelectionHighlight: true };
+    setCalibration(activeConfig);
+    customLayerRef.current?.setCalibration(activeConfig, false);
+    setShowCalibrationModal(true);
+  };
 
   const handleCalibrationChange = (newConfig: CalibrationConfig) => {
-    setCalibration(newConfig);
-    customLayerRef.current?.setCalibration(newConfig);
+    const updated = { ...newConfig, showSelectionHighlight: true };
+    setCalibration(updated);
+    // Live update in memory preview (cache) without saving to storage yet
+    customLayerRef.current?.setCalibration(updated, false);
+  };
+
+  const handleSaveAsDefault = async () => {
+    const cleanConfig = { ...calibration, showSelectionHighlight: false, selectedBuildingId: null };
+    saveCalibration(cleanConfig);
+    setSavedCalibration(cleanConfig);
+    setCalibration(cleanConfig);
+    customLayerRef.current?.setCalibration(cleanConfig, true);
+    setShowCalibrationModal(false);
+    showToast('💾 Saving 3D Calibration to database...');
+
+    const dbSaved = await saveCalibrationToSupabase(cleanConfig);
+    if (dbSaved) {
+      showToast('✅ Saved globally to database! All browsers updated.');
+    } else {
+      showToast('⚠️ Saved locally to browser cache.');
+    }
+  };
+
+  const handleResetDefaults = () => {
+    const resetConfig = { ...DEFAULT_CALIBRATION, showSelectionHighlight: true };
+    setCalibration(resetConfig);
+    customLayerRef.current?.setCalibration(resetConfig, false);
+  };
+
+  const handleCancelCalibration = () => {
+    const revertTo = initialSavedRef.current || savedCalibration;
+    const cleanRevert = { ...revertTo, showSelectionHighlight: false, selectedBuildingId: null };
+    setCalibration(cleanRevert);
+    customLayerRef.current?.setCalibration(cleanRevert, false);
+    setShowCalibrationModal(false);
   };
 
   // ── Load stores from Supabase ────────────────────────────────
@@ -103,6 +173,18 @@ export function Map3DPage() {
       if (!m.getLayer('kalawana-school-3d')) {
         const layer = createKalawanaSchool3DLayer('kalawana-school-3d', calibration);
         customLayerRef.current = layer;
+
+        layer.setSelectedBuildingHandler((buildingId) => {
+          if (buildingId) {
+            setCalibration((prev) => {
+              const updated = { ...prev, selectedBuildingId: buildingId };
+              layer.setCalibration(updated, false);
+              return updated;
+            });
+            setShowCalibrationModal(true);
+          }
+        });
+
         m.addLayer(layer);
       }
 
@@ -261,36 +343,59 @@ export function Map3DPage() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
-          <button
-            onClick={() => setShowCalibrationModal(!showCalibrationModal)}
-            title="Calibrate 3D Model Scale, Position & Rotation"
-            style={{
-              padding: '0.45rem 0.85rem', borderRadius: 10,
-              background: showCalibrationModal
-                ? 'linear-gradient(135deg, #6366f1, #a855f7)'
-                : 'rgba(10,10,26,0.85)',
-              backdropFilter: 'blur(12px)',
-              border: '1px solid rgba(99,102,241,0.4)', color: '#fff',
-              fontSize: '0.78rem', fontWeight: 600,
-              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              cursor: 'pointer',
-            }}
-          >
-            <Settings size={14} color="#a855f7" />
-            Calibrate Size/Pos
-          </button>
-        </div>
+        {isMainAdmin && (
+          <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
+            <button
+              onClick={() => {
+                if (showCalibrationModal) handleCancelCalibration();
+                else handleOpenCalibration();
+              }}
+              title="Calibrate 3D Model Scale, Position & Rotation (Main Admin Only)"
+              style={{
+                padding: '0.45rem 0.85rem', borderRadius: 10,
+                background: showCalibrationModal
+                  ? 'linear-gradient(135deg, #6366f1, #a855f7)'
+                  : 'rgba(10,10,26,0.85)',
+                backdropFilter: 'blur(12px)',
+                border: '1px solid rgba(99,102,241,0.4)', color: '#fff',
+                fontSize: '0.78rem', fontWeight: 600,
+                boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                cursor: 'pointer',
+              }}
+            >
+              <Settings size={14} color="#a855f7" />
+              Calibrate Size/Pos
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* ── Calibration Control Floating Panel ─────────────────────── */}
-      <Kalawana3DCalibrationModal
-        isOpen={showCalibrationModal}
-        onClose={() => setShowCalibrationModal(false)}
-        config={calibration}
-        onChange={handleCalibrationChange}
-      />
+      {/* ── Toast notification popup ─────────────────── */}
+      {toastMessage && (
+        <div style={{
+          position: 'absolute', top: 80, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 1100, background: 'rgba(16, 185, 129, 0.95)', color: '#fff',
+          padding: '0.6rem 1.2rem', borderRadius: 10, backdropFilter: 'blur(12px)',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.5)', fontWeight: 600, fontSize: '0.85rem',
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+        }}>
+          {toastMessage}
+        </div>
+      )}
+
+      {/* ── Calibration Control Floating Panel (Main Admin Only) ─────── */}
+      {isMainAdmin && (
+        <Kalawana3DCalibrationModal
+          isOpen={showCalibrationModal}
+          onClose={handleCancelCalibration}
+          config={calibration}
+          onChange={handleCalibrationChange}
+          onSaveAsDefault={handleSaveAsDefault}
+          onResetDefaults={handleResetDefaults}
+          onCancel={handleCancelCalibration}
+        />
+      )}
 
       {/* ── Left control buttons ─────────────────────── */}
       <div style={{

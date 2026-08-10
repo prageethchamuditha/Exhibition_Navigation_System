@@ -16,6 +16,7 @@ import {
   BarChart3,
   Home,
   UserCheck,
+  Maximize2,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -115,6 +116,19 @@ export function AdminLayout({ children }: { children: ReactNode }) {
                   <span className="admin-nav-label">{item.label}</span>
                 </NavLink>
               ))}
+
+              {profile?.role === 'admin' && (
+                <a
+                  href="/map3d"
+                  className="admin-nav-item"
+                  onClick={() => setMobileOpen(false)}
+                  title={collapsed ? '3D Calibration' : undefined}
+                  style={{ color: '#c084fc' }}
+                >
+                  <span className="nav-icon"><Maximize2 size={18} /></span>
+                  <span className="admin-nav-label">3D Calibration</span>
+                </a>
+              )}
 
               <div className="admin-sidebar-section" style={{ marginTop: '0.5rem' }}>Engagement</div>
               {NAV_ITEMS.slice(5).map((item) => (

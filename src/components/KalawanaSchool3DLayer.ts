@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import * as maplibregl from 'maplibre-gl';
+import { supabase } from '../lib/supabase';
 
 // ── Anchor & Scale Constants ───────────────────────────────────
-// Wikipedia / Wikidata WGS84 coordinates for Kalawana National School
 export const KALAWANA_ANCHOR_LAT = 6.535472;
 export const KALAWANA_ANCHOR_LNG = 80.401000;
 
@@ -10,12 +10,31 @@ export const SCALE = 0.16;
 export const OX = 384;
 export const OY = 270;
 
+export interface BuildingConfig {
+  id: string;
+  name: string;
+  corners: [number, number][];
+  cat: 'main' | 'road' | 'out';
+  height: number;
+  roof: 'hip' | 'flat';
+  scaleMultiplier?: number;
+  latOffsetMeters?: number;
+  lngOffsetMeters?: number;
+  altitudeMeters?: number;
+  wallColor?: string;
+  roofColor?: string;
+  isDeleted?: boolean;
+}
+
 export interface CalibrationConfig {
   scaleMultiplier: number;  // 1.0 = default (0.16)
   rotationAngle: number;    // degrees (-180 to +180)
   latOffsetMeters: number;  // meters North (+)/South (-)
   lngOffsetMeters: number;  // meters East (+)/West (-)
   altitudeMeters: number;   // meters Up (+)/Down (-)
+  buildings?: BuildingConfig[];
+  selectedBuildingId?: string | null;
+  showSelectionHighlight?: boolean;
 }
 
 export const DEFAULT_CALIBRATION: CalibrationConfig = {
@@ -24,27 +43,11 @@ export const DEFAULT_CALIBRATION: CalibrationConfig = {
   latOffsetMeters: 0,
   lngOffsetMeters: 0,
   altitudeMeters: 0,
+  selectedBuildingId: null,
+  showSelectionHighlight: false,
 };
 
 const STORAGE_KEY = 'kalawana_3d_calibration_config';
-
-export function getSavedCalibration(): CalibrationConfig {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULT_CALIBRATION, ...JSON.parse(raw) };
-  } catch (e) {
-    console.warn('Failed to load saved 3D calibration:', e);
-  }
-  return { ...DEFAULT_CALIBRATION };
-}
-
-export function saveCalibration(config: CalibrationConfig) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-  } catch (e) {
-    console.warn('Failed to save 3D calibration:', e);
-  }
-}
 
 export interface BuildingData {
   corners: [number, number][];
@@ -103,17 +106,179 @@ export const BUILDINGS_DATA: BuildingData[] = [
   { corners: [[9.0, 544.0], [1.0, 544.0], [1.0, 524.0], [9.0, 524.0]], cat: 'out', height: 2.89, roof: 'hip' },
 ];
 
+export function getDefaultBuildings(): BuildingConfig[] {
+  return BUILDINGS_DATA.map((b, i) => {
+    const catLabel = b.cat === 'main' ? 'Main Complex' : b.cat === 'road' ? 'Roadside' : 'Outbuilding';
+    return {
+      id: `b-${i + 1}`,
+      name: `Building #${i + 1} (${catLabel})`,
+      corners: b.corners,
+      cat: b.cat,
+      height: b.height ?? 3.4,
+      roof: b.roof ?? 'hip',
+      scaleMultiplier: 1.0,
+      latOffsetMeters: 0,
+      lngOffsetMeters: 0,
+      altitudeMeters: 0,
+      isDeleted: false,
+    };
+  });
+}
+
+export function getSavedCalibration(): CalibrationConfig {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        ...DEFAULT_CALIBRATION,
+        ...parsed,
+        buildings: parsed.buildings || getDefaultBuildings(),
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to load saved 3D calibration:', e);
+  }
+  return {
+    ...DEFAULT_CALIBRATION,
+    buildings: getDefaultBuildings(),
+  };
+}
+
+export function saveCalibration(config: CalibrationConfig) {
+  const cleanConfig: CalibrationConfig = {
+    ...config,
+    showSelectionHighlight: false,
+    selectedBuildingId: null,
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanConfig));
+  } catch (e) {
+    console.warn('Failed to save 3D calibration locally:', e);
+  }
+  // Async background sync to Supabase database so all browsers get the updated 3D buildings
+  saveCalibrationToSupabase(cleanConfig);
+}
+
+export async function saveCalibrationToSupabase(config: CalibrationConfig): Promise<boolean> {
+  const cleanConfig: CalibrationConfig = {
+    ...config,
+    showSelectionHighlight: false,
+    selectedBuildingId: null,
+  };
+  let success = false;
+  // 1. Try primary app_settings table
+  try {
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert(
+        {
+          key: STORAGE_KEY,
+          value: cleanConfig as any,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
+    if (!error) {
+      success = true;
+    } else {
+      console.warn('Primary app_settings table notice:', error.message);
+    }
+  } catch (e) {
+    console.warn('Error saving to app_settings:', e);
+  }
+
+  // 2. Dual fallback: sync to announcements table config record so it ALWAYS persists in Supabase
+  try {
+    const payload = JSON.stringify(cleanConfig);
+    const { data: existing } = await supabase
+      .from('announcements')
+      .select('id')
+      .eq('title', '3D_CALIBRATION_CONFIG')
+      .maybeSingle();
+
+    if (existing?.id) {
+      const { error: updateErr } = await supabase
+        .from('announcements')
+        .update({
+          message: payload,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id);
+      if (!updateErr) success = true;
+    } else {
+      const { error: insertErr } = await supabase
+        .from('announcements')
+        .insert({
+          title: '3D_CALIBRATION_CONFIG',
+          message: payload,
+          type: 'info',
+          is_active: false,
+        });
+      if (!insertErr) success = true;
+    }
+  } catch (e) {
+    console.warn('Error saving 3D calibration to announcements fallback:', e);
+  }
+
+  return success;
+}
+
+export async function fetchCalibrationFromSupabase(): Promise<CalibrationConfig | null> {
+  // 1. Try primary app_settings table
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', STORAGE_KEY)
+      .maybeSingle();
+
+    if (!error && data?.value) {
+      const config: CalibrationConfig = {
+        ...DEFAULT_CALIBRATION,
+        ...(data.value as CalibrationConfig),
+        buildings: (data.value as CalibrationConfig).buildings || getDefaultBuildings(),
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      } catch {}
+      return config;
+    }
+  } catch (e) {
+    console.warn('Notice reading app_settings:', e);
+  }
+
+  // 2. Fallback to announcements config record
+  try {
+    const { data, error } = await supabase
+      .from('announcements')
+      .select('message')
+      .eq('title', '3D_CALIBRATION_CONFIG')
+      .maybeSingle();
+
+    if (!error && data?.message) {
+      const parsed = JSON.parse(data.message);
+      const config: CalibrationConfig = {
+        ...DEFAULT_CALIBRATION,
+        ...parsed,
+        buildings: parsed.buildings || getDefaultBuildings(),
+      };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      } catch {}
+      return config;
+    }
+  } catch (e) {
+    console.warn('Notice reading 3D calibration from announcements fallback:', e);
+  }
+
+  return null;
+}
+
 export const TREE_SPOTS: [number, number][] = [
   [40, 235], [60, 290], [80, 340], [30, 390], [10, 290], [680, 250], [700, 290],
   [690, 390], [670, 440], [600, 460], [170, 500], [130, 460], [90, 480],
   [700, 150], [715, 195], [730, 240], [230, 460], [560, 300], [580, 350],
-];
-
-export const ROAD_STRIPS: { points: [number, number][]; width: number }[] = [
-  { points: [[-30, 205], [0, 197], [100, 178], [250, 112], [400, 85], [560, 70], [700, 50], [768, 8]], width: 5.5 },
-  { points: [[700, 50], [740, -10]], width: 4.5 },
-  { points: [[622, 8], [615, 120], [625, 260], [648, 400], [660, 555]], width: 3.2 },
-  { points: [[0, 465], [40, 505], [90, 535], [140, 552], [200, 555]], width: 2.4 },
 ];
 
 // ── Palette by Building Category ───────────────────────────────
@@ -148,8 +313,9 @@ function extrudeFootprint(pts: { x: number; z: number }[], height: number) {
 }
 
 export interface KalawanaCustomLayerInterface extends maplibregl.CustomLayerInterface {
-  setCalibration(config: Partial<CalibrationConfig>): void;
+  setCalibration(config: Partial<CalibrationConfig>, persist?: boolean): void;
   getCalibration(): CalibrationConfig;
+  setSelectedBuildingHandler(handler: ((buildingId: string | null) => void) | null): void;
 }
 
 // ── MapLibre CustomLayerInterface Factory ──────────────────────
@@ -161,25 +327,184 @@ export function createKalawanaSchool3DLayer(
   let scene: THREE.Scene;
   let renderer: THREE.WebGLRenderer;
   let mapInstance: maplibregl.Map;
+  let buildingsContainerGroup: THREE.Group;
 
   let currentCalibration: CalibrationConfig = {
     ...getSavedCalibration(),
     ...(initialCalibration || {}),
   };
+  if (!currentCalibration.buildings || currentCalibration.buildings.length === 0) {
+    currentCalibration.buildings = getDefaultBuildings();
+  }
+
+  let onBuildingSelectCallback: ((buildingId: string | null) => void) | null = null;
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  function buildBuildingMeshes() {
+    if (!buildingsContainerGroup) return;
+
+    // Clear previous building meshes
+    while (buildingsContainerGroup.children.length > 0) {
+      const child = buildingsContainerGroup.children[0];
+      buildingsContainerGroup.remove(child);
+    }
+
+    const buildingsList = currentCalibration.buildings || [];
+    const selectedId = currentCalibration.selectedBuildingId;
+
+    buildingsList.forEach((b) => {
+      if (b.isDeleted) return;
+
+      const buildingGroup = new THREE.Group();
+      buildingGroup.userData = { buildingId: b.id };
+
+      const worldPts = b.corners.map(([px, py]) => toWorld(px, py));
+      const cx = worldPts.reduce((s, p) => s + p.x, 0) / worldPts.length;
+      const cz = worldPts.reduce((s, p) => s + p.z, 0) / worldPts.length;
+
+      // Local footprint points relative to centroid (0,0)
+      const localPts = worldPts.map((p) => ({ x: p.x - cx, z: p.z - cz }));
+
+      const baseHeight = b.height ?? 3.4;
+      const wallH = Math.max(0.5, baseHeight);
+
+      const categoryPalette = PALETTE[b.cat] || PALETTE.out;
+      const wallColorHex = b.wallColor ? parseInt(b.wallColor.replace('#', ''), 16) : categoryPalette.wall;
+      const roofColorHex = b.roofColor ? parseInt(b.roofColor.replace('#', ''), 16) : categoryPalette.roof;
+
+      const isSelected = Boolean(currentCalibration.showSelectionHighlight && b.id === selectedId);
+
+      // Walls — extruded relative to local centroid (0,0)
+      const wallGeo = extrudeFootprint(localPts, wallH);
+      const wallMat = new THREE.MeshStandardMaterial({
+        color: isSelected ? 0x00f0ff : wallColorHex,
+        roughness: 0.7,
+        metalness: 0.05,
+        side: THREE.DoubleSide,
+      });
+      const wallMesh = new THREE.Mesh(wallGeo, wallMat);
+      wallMesh.userData = { buildingId: b.id };
+      buildingGroup.add(wallMesh);
+
+      // Base Plinth
+      const plinthGeo = extrudeFootprint(localPts, 0.25);
+      const plinthMat = new THREE.MeshStandardMaterial({
+        color: isSelected ? 0x6366f1 : categoryPalette.edge,
+        roughness: 0.9,
+        side: THREE.DoubleSide,
+      });
+      const plinthMesh = new THREE.Mesh(plinthGeo, plinthMat);
+      plinthMesh.position.y = -0.01;
+      buildingGroup.add(plinthMesh);
+
+      // Centroid edge orientation for roof
+      const v1 = { x: localPts[1].x - localPts[0].x, z: localPts[1].z - localPts[0].z };
+      const v2 = { x: localPts[2].x - localPts[1].x, z: localPts[2].z - localPts[1].z };
+      const wLen = Math.hypot(v1.x, v1.z);
+      const dLen = Math.hypot(v2.x, v2.z);
+      const theta = Math.atan2(-v1.z, v1.x);
+
+      // Roof
+      const roofType = b.roof ?? 'hip';
+      if (roofType === 'hip') {
+        const roofH = Math.min(wLen, dLen) * 0.35;
+        const roofGeo = new THREE.ConeGeometry(1, roofH, 4, 1);
+        roofGeo.rotateY(Math.PI / 4);
+        const roofMat = new THREE.MeshStandardMaterial({
+          color: isSelected ? 0xec4899 : roofColorHex,
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+        });
+        const roofMesh = new THREE.Mesh(roofGeo, roofMat);
+        roofMesh.userData = { buildingId: b.id };
+        const overhang = 1.1;
+        roofMesh.scale.set((wLen * overhang) / Math.SQRT2, 1, (dLen * overhang) / Math.SQRT2);
+        roofMesh.rotation.y = theta;
+        roofMesh.position.set(0, wallH + roofH / 2 - 0.02, 0);
+        buildingGroup.add(roofMesh);
+      } else {
+        const roofGeo = new THREE.BoxGeometry(wLen + 0.2, 0.25, dLen + 0.2);
+        const roofMat = new THREE.MeshStandardMaterial({
+          color: isSelected ? 0xec4899 : roofColorHex,
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+        });
+        const roofMesh = new THREE.Mesh(roofGeo, roofMat);
+        roofMesh.userData = { buildingId: b.id };
+        roofMesh.rotation.y = theta;
+        roofMesh.position.set(0, wallH + 0.15, 0);
+        buildingGroup.add(roofMesh);
+      }
+
+      // Selection Highlight Beacon & Glowing Wireframe Box
+      if (isSelected) {
+        // Glowing Wireframe Box
+        const bbox = new THREE.Box3().setFromObject(buildingGroup);
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        const center = new THREE.Vector3();
+        bbox.getCenter(center);
+
+        const wireGeo = new THREE.BoxGeometry(size.x + 0.8, size.y + 0.8, size.z + 0.8);
+        const wireMat = new THREE.MeshBasicMaterial({
+          color: 0x00ffff,
+          wireframe: true,
+        });
+        const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+        wireMesh.position.copy(center);
+        buildingGroup.add(wireMesh);
+
+        // Vertical Beacon Beam Light
+        const beamGeo = new THREE.CylinderGeometry(0.4, 2.0, 35, 12, 1, true);
+        const beamMat = new THREE.MeshBasicMaterial({
+          color: 0x00ffff,
+          transparent: true,
+          opacity: 0.45,
+          side: THREE.DoubleSide,
+        });
+        const beamMesh = new THREE.Mesh(beamGeo, beamMat);
+        beamMesh.position.set(0, wallH + 17.5, 0);
+        buildingGroup.add(beamMesh);
+      }
+
+      // Apply individual scaling & position shift around centroid
+      const scaleVal = b.scaleMultiplier ?? 1.0;
+      buildingGroup.scale.set(scaleVal, scaleVal, scaleVal);
+
+      const latShift = b.latOffsetMeters || 0;
+      const lngShift = b.lngOffsetMeters || 0;
+      const altShift = b.altitudeMeters || 0;
+
+      buildingGroup.position.set(cx + lngShift, altShift, cz - latShift);
+
+      buildingsContainerGroup.add(buildingGroup);
+    });
+  }
 
   const layer: KalawanaCustomLayerInterface = {
     id,
     type: 'custom',
     renderingMode: '3d',
 
-    setCalibration(config: Partial<CalibrationConfig>) {
+    setCalibration(config: Partial<CalibrationConfig>, persist: boolean = false) {
       currentCalibration = { ...currentCalibration, ...config };
-      saveCalibration(currentCalibration);
+      if (!currentCalibration.buildings || currentCalibration.buildings.length === 0) {
+        currentCalibration.buildings = getDefaultBuildings();
+      }
+      buildBuildingMeshes();
+      if (persist) {
+        saveCalibration(currentCalibration);
+      }
       mapInstance?.triggerRepaint();
     },
 
     getCalibration() {
       return { ...currentCalibration };
+    },
+
+    setSelectedBuildingHandler(handler: ((buildingId: string | null) => void) | null) {
+      onBuildingSelectCallback = handler;
     },
 
     onAdd(map: maplibregl.Map, gl: WebGLRenderingContext) {
@@ -199,60 +524,10 @@ export function createKalawanaSchool3DLayer(
       fill.position.set(60, 40, -60);
       scene.add(fill);
 
-      // Build 39 Buildings
-      BUILDINGS_DATA.forEach((b) => {
-        const worldPts = b.corners.map(([px, py]) => toWorld(px, py));
-        const wallH = b.height ?? 3.4;
-        const colors = PALETTE[b.cat] || PALETTE.out;
+      buildingsContainerGroup = new THREE.Group();
+      scene.add(buildingsContainerGroup);
 
-        // Walls — extruded directly from real footprint polygon
-        const wallGeo = extrudeFootprint(worldPts, wallH);
-        const wallMat = new THREE.MeshStandardMaterial({
-          color: colors.wall,
-          roughness: 0.85,
-          metalness: 0.02,
-          side: THREE.DoubleSide,
-        });
-        const wall = new THREE.Mesh(wallGeo, wallMat);
-        scene.add(wall);
-
-        // Base plinth — short footprint extrusion underneath
-        const plinthGeo = extrudeFootprint(worldPts, 0.3);
-        const plinthMat = new THREE.MeshStandardMaterial({ color: colors.edge, roughness: 1, side: THREE.DoubleSide });
-        const plinth = new THREE.Mesh(plinthGeo, plinthMat);
-        plinth.position.y = -0.02;
-        scene.add(plinth);
-
-        // Centroid & edge orientation derived from exact corner points
-        const cx = worldPts.reduce((s, p) => s + p.x, 0) / worldPts.length;
-        const cz = worldPts.reduce((s, p) => s + p.z, 0) / worldPts.length;
-        const v1 = { x: worldPts[1].x - worldPts[0].x, z: worldPts[1].z - worldPts[0].z };
-        const v2 = { x: worldPts[2].x - worldPts[1].x, z: worldPts[2].z - worldPts[1].z };
-        const wLen = Math.hypot(v1.x, v1.z);
-        const dLen = Math.hypot(v2.x, v2.z);
-        const theta = Math.atan2(-v1.z, v1.x);
-
-        if ((b.roof ?? 'hip') === 'hip') {
-          const roofH = Math.min(wLen, dLen) * 0.35;
-          // 4-sided pyramid cone: rotate geometry 45 deg before scaling to prevent distortion
-          const roofGeo = new THREE.ConeGeometry(1, roofH, 4, 1);
-          roofGeo.rotateY(Math.PI / 4);
-          const roofMat = new THREE.MeshStandardMaterial({ color: colors.roof, roughness: 0.7, side: THREE.DoubleSide });
-          const roof = new THREE.Mesh(roofGeo, roofMat);
-          const overhang = 1.1;
-          roof.scale.set((wLen * overhang) / Math.SQRT2, 1, (dLen * overhang) / Math.SQRT2);
-          roof.rotation.y = theta;
-          roof.position.set(cx, wallH + roofH / 2 - 0.02, cz);
-          scene.add(roof);
-        } else {
-          const roofGeo = new THREE.BoxGeometry(wLen + 0.2, 0.25, dLen + 0.2);
-          const roofMat = new THREE.MeshStandardMaterial({ color: colors.roof, roughness: 0.7, side: THREE.DoubleSide });
-          const roof = new THREE.Mesh(roofGeo, roofMat);
-          roof.rotation.y = theta;
-          roof.position.set(cx, wallH + 0.15, cz);
-          scene.add(roof);
-        }
-      });
+      buildBuildingMeshes();
 
       // Add Trees
       TREE_SPOTS.forEach(([px, py]) => {
@@ -274,8 +549,6 @@ export function createKalawanaSchool3DLayer(
         scene.add(g);
       });
 
-      // Road strips removed per request
-
       // Initialize WebGLRenderer sharing MapLibre context
       renderer = new THREE.WebGLRenderer({
         canvas: map.getCanvas(),
@@ -283,6 +556,29 @@ export function createKalawanaSchool3DLayer(
         antialias: true,
       });
       renderer.autoClear = false;
+
+      // Click listener for raycast selecting buildings on map
+      const canvas = map.getCanvas();
+      canvas.addEventListener('click', (event: MouseEvent) => {
+        if (!onBuildingSelectCallback || !buildingsContainerGroup) return;
+
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(buildingsContainerGroup.children, true);
+
+        if (intersects.length > 0) {
+          let obj: THREE.Object3D | null = intersects[0].object;
+          while (obj && !obj.userData?.buildingId) {
+            obj = obj.parent;
+          }
+          if (obj?.userData?.buildingId) {
+            onBuildingSelectCallback(obj.userData.buildingId);
+          }
+        }
+      });
     },
 
     render(_gl: WebGLRenderingContext | CanvasRenderingContext2D, options: maplibregl.CustomRenderMethodInput | any) {
