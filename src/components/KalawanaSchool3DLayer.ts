@@ -529,6 +529,13 @@ export function createKalawanaSchool3DLayer(
 
       buildBuildingMeshes();
 
+      // Auto-sync calibration from Supabase for fresh browser sessions
+      fetchCalibrationFromSupabase().then((remoteConfig) => {
+        if (remoteConfig) {
+          layer.setCalibration(remoteConfig, false);
+        }
+      });
+
       // Add Trees
       TREE_SPOTS.forEach(([px, py]) => {
         const s = 0.8 + Math.random() * 0.6;

@@ -46,6 +46,7 @@ export function Map3DPage() {
   // Calibration state
   const [savedCalibration, setSavedCalibration] = useState<CalibrationConfig>(getSavedCalibration());
   const [calibration, setCalibration] = useState<CalibrationConfig>(getSavedCalibration());
+  const calibrationRef = useRef<CalibrationConfig>(getSavedCalibration());
   const initialSavedRef = useRef<CalibrationConfig>(getSavedCalibration());
   const [showCalibrationModal, setShowCalibrationModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -56,6 +57,7 @@ export function Map3DPage() {
       if (remoteConfig) {
         setSavedCalibration(remoteConfig);
         setCalibration(remoteConfig);
+        calibrationRef.current = remoteConfig;
         initialSavedRef.current = remoteConfig;
         customLayerRef.current?.setCalibration(remoteConfig, false);
       }
@@ -74,6 +76,7 @@ export function Map3DPage() {
     setSavedCalibration(currentSaved);
     const activeConfig = { ...currentSaved, showSelectionHighlight: true };
     setCalibration(activeConfig);
+    calibrationRef.current = activeConfig;
     customLayerRef.current?.setCalibration(activeConfig, false);
     setShowCalibrationModal(true);
   };
@@ -81,6 +84,7 @@ export function Map3DPage() {
   const handleCalibrationChange = (newConfig: CalibrationConfig) => {
     const updated = { ...newConfig, showSelectionHighlight: true };
     setCalibration(updated);
+    calibrationRef.current = updated;
     // Live update in memory preview (cache) without saving to storage yet
     customLayerRef.current?.setCalibration(updated, false);
   };
@@ -90,6 +94,7 @@ export function Map3DPage() {
     saveCalibration(cleanConfig);
     setSavedCalibration(cleanConfig);
     setCalibration(cleanConfig);
+    calibrationRef.current = cleanConfig;
     customLayerRef.current?.setCalibration(cleanConfig, true);
     setShowCalibrationModal(false);
     showToast('💾 Saving 3D Calibration to database...');
@@ -105,6 +110,7 @@ export function Map3DPage() {
   const handleResetDefaults = () => {
     const resetConfig = { ...DEFAULT_CALIBRATION, showSelectionHighlight: true };
     setCalibration(resetConfig);
+    calibrationRef.current = resetConfig;
     customLayerRef.current?.setCalibration(resetConfig, false);
   };
 
@@ -112,6 +118,7 @@ export function Map3DPage() {
     const revertTo = initialSavedRef.current || savedCalibration;
     const cleanRevert = { ...revertTo, showSelectionHighlight: false, selectedBuildingId: null };
     setCalibration(cleanRevert);
+    calibrationRef.current = cleanRevert;
     customLayerRef.current?.setCalibration(cleanRevert, false);
     setShowCalibrationModal(false);
   };
@@ -171,13 +178,14 @@ export function Map3DPage() {
 
       // ── Three.js Kalawana National School 3D Layer ──────────
       if (!m.getLayer('kalawana-school-3d')) {
-        const layer = createKalawanaSchool3DLayer('kalawana-school-3d', calibration);
+        const layer = createKalawanaSchool3DLayer('kalawana-school-3d', calibrationRef.current);
         customLayerRef.current = layer;
 
         layer.setSelectedBuildingHandler((buildingId) => {
           if (buildingId) {
             setCalibration((prev) => {
               const updated = { ...prev, selectedBuildingId: buildingId };
+              calibrationRef.current = updated;
               layer.setCalibration(updated, false);
               return updated;
             });
