@@ -20,7 +20,10 @@ import {
 } from '../lib/supabase';
 import { MapView } from '../components/MapView';
 import { MapView3D } from '../components/MapView3D';
+import { getCampusStoreLocation } from '../components/KalawanaSchool3DLayer';
 import { calculateShortestPath, calculateShortestPathWithSnapping, findClosestNode, getDistance, getHeading } from '../utils/dijkstra';
+import { DEFAULT_BUILDING_RECTANGLES, contourPathAroundBuildings, type BuildingRectangle } from '../utils/geometry';
+import { fetchOSRMRoute } from '../utils/osrmRouting';
 import { logAnalyticsEvent } from '../lib/analytics';
 import { GPSKalmanFilter } from '../utils/gpsFilter';
 
@@ -49,6 +52,7 @@ export function MapPage() {
   const [stores, setStores] = useState<StoreType[]>([]);
   const [nodes, setNodes] = useState<NavigationNode[]>([]);
   const [edges, setEdges] = useState<NavigationEdge[]>([]);
+  const [buildingRectangles] = useState<BuildingRectangle[]>(DEFAULT_BUILDING_RECTANGLES);
   const [loading, setLoading] = useState(true);
 
   // Geolocation tracking state
@@ -188,7 +192,12 @@ export function MapPage() {
         activeStores.unshift(kalawanaSchoolStore);
       }
 
-      setStores(activeStores);
+      const processedStores: StoreType[] = activeStores.map((store, index) => {
+        const pos = getCampusStoreLocation(store, index);
+        return { ...store, latitude: pos.lat, longitude: pos.lng };
+      });
+
+      setStores(processedStores);
       setNodes(navigationNodes);
       setEdges(navigationEdges);
 
@@ -310,7 +319,7 @@ export function MapPage() {
   }, [selectedDestinationStoreId, selectedDestinationNodeId, userLat, userLng, mockMode, mockStartNodeId, nodes, edges]);
 
   // Compute route path
-  function calculateRoutePath() {
+  async function calculateRoutePath() {
     if (!selectedDestinationStoreId && !selectedDestinationNodeId) return;
 
     let targetLat: number | null = null;
@@ -367,19 +376,27 @@ export function MapPage() {
       startLabel = fallbackNode.label;
     }
 
-    // 3. Try to calculate network Dijkstra path first (if nodes exist)
+    // 3. Tier 1: Try OpenStreetMap OSRM Outdoor Road Navigation (for outdoor street paths)
+    const osrmResult = await fetchOSRMRoute(startLat, startLng, targetLat, targetLng, startLabel, targetLabel);
+    if (osrmResult && osrmResult.nodes.length > 1) {
+      const contouredOSRM = contourPathAroundBuildings(osrmResult.nodes, buildingRectangles);
+      setCalculatedRoute(contouredOSRM);
+      setTotalDistance(osrmResult.totalDistanceMeters);
+      setGuideSteps(osrmResult.guideSteps);
+      setNavigationActive(true);
+      return;
+    }
+
+    // 4. Tier 2: Custom Dijkstra Graph Navigation (with Building Rectangle Avoidance)
     let path: NavigationNode[] = [];
     if (nodes.length > 0) {
-      // Find IDs of nodes that are actually connected by edges
       const connectedNodeIds = new Set<string>();
       edges.forEach((edge) => {
         connectedNodeIds.add(edge.from_node_id);
         connectedNodeIds.add(edge.to_node_id);
       });
-      // Filter list of nodes to only those that have connections (or are entrances)
       const connectedNodes = nodes.filter((n) => connectedNodeIds.has(n.id) || n.type === 'entrance');
       const searchNodesList = connectedNodes.length > 0 ? connectedNodes : nodes;
-
       const entranceNodes = nodes.filter((n) => n.type === 'entrance');
 
       let endNode = selectedDestinationStoreId
@@ -405,10 +422,10 @@ export function MapPage() {
             nodes,
             edges,
             gpsAccuracy,
-            GPS_ACCURACY_THRESHOLD
+            GPS_ACCURACY_THRESHOLD,
+            buildingRectangles
           );
         } else {
-          // Mock mode or fallback start
           let startNode = mockStartNodeId ? nodes.find((n) => n.id === mockStartNodeId) : undefined;
           if (!startNode) {
             startNode = entranceNodes.length > 0 ? entranceNodes[0] : nodes[0];
@@ -418,13 +435,13 @@ export function MapPage() {
           }
 
           if (startNode) {
-            path = calculateShortestPath(startNode.id, endNode.id, nodes, edges);
+            path = calculateShortestPath(startNode.id, endNode.id, nodes, edges, buildingRectangles);
           }
         }
       }
     }
 
-    // Create virtual start node representing actual user position
+    // Virtual endpoints
     const userStartVirtualNode: NavigationNode = {
       id: 'actual-start-virtual',
       label: startLabel,
@@ -436,7 +453,6 @@ export function MapPage() {
       created_at: new Date().toISOString()
     };
 
-    // Create virtual end node representing actual target position
     const destEndVirtualNode: NavigationNode = {
       id: 'actual-end-virtual',
       label: targetLabel,
@@ -448,78 +464,55 @@ export function MapPage() {
       created_at: new Date().toISOString()
     };
 
-    // 4. Connect actual locations with Dijkstra path if found
     let finalRoute = [...path];
     if (path.length > 0) {
       const startDist = getDistance(startLat, startLng, path[0].latitude, path[0].longitude);
       const endDist = getDistance(path[path.length - 1].latitude, path[path.length - 1].longitude, targetLat, targetLng);
 
-      // Prepend user location if it is not already identical to the nearest node
       if (startDist > 2) {
         finalRoute.unshift(userStartVirtualNode);
       }
-      // Append destination location if it is not already identical to the final node
       if (endDist > 2) {
         finalRoute.push(destEndVirtualNode);
       }
     }
 
-    // 5. Fallback to direct routing if network is empty, target is disconnected, or start/end are same
-    if (finalRoute.length === 0) {
-      const lineDist = getDistance(startLat, startLng, targetLat, targetLng);
-      const heading = getHeading(startLat, startLng, targetLat, targetLng);
+    // Apply building perimeter contouring (auto-narrowing path around building rectangles)
+    let contouredRoute = contourPathAroundBuildings(finalRoute, buildingRectangles);
 
-      setCalculatedRoute([userStartVirtualNode, destEndVirtualNode]);
-      setTotalDistance(Math.round(lineDist));
-      setGuideSteps([
-        `Start from ${startLabel}`,
-        `Head ${heading} for ${Math.round(lineDist)} meters directly to ${targetLabel} (Direct Path)`,
-        `Arrive at ${targetLabel}`
-      ]);
-      setNavigationActive(true);
-      return;
+    // Fallback to direct path with perimeter contouring if graph produced no route
+    if (contouredRoute.length === 0) {
+      contouredRoute = contourPathAroundBuildings([userStartVirtualNode, destEndVirtualNode], buildingRectangles);
     }
 
-    // 6. Build network route guidance steps
-    setCalculatedRoute(finalRoute);
+    setCalculatedRoute(contouredRoute);
     setNavigationActive(true);
 
-    if (finalRoute.length > 1) {
+    if (contouredRoute.length > 1) {
       let distanceMeters = 0;
       const steps: string[] = [];
 
-      for (let i = 0; i < finalRoute.length - 1; i++) {
-        const from = finalRoute[i];
-        const to = finalRoute[i + 1];
+      for (let i = 0; i < contouredRoute.length - 1; i++) {
+        const from = contouredRoute[i];
+        const to = contouredRoute[i + 1];
         const segmentDist = getDistance(from.latitude, from.longitude, to.latitude, to.longitude);
         distanceMeters += segmentDist;
 
         if (i === 0) {
           steps.push(`Start from ${from.label}`);
         }
-        
-        let directionStr = 'Continue straight';
-        if (to.floor && from.floor && to.floor !== from.floor) {
-          directionStr = `Take escalator/lift to Floor ${to.floor}`;
-        } else if (to.id === 'actual-end-virtual') {
-          directionStr = `Walk to destination ${to.label}`;
-        } else if (to.type === 'poi') {
-          directionStr = `Walk towards ${to.label}`;
-        } else if (to.type === 'store') {
-          directionStr = `Proceed to ${to.label}`;
-        } else if (to.type === 'entrance') {
-          directionStr = `Head to ${to.label}`;
-        } else {
-          directionStr = `Walk towards ${to.label}`;
-        }
 
-        steps.push(`${directionStr} for ${Math.round(segmentDist)} meters`);
+        const heading = getHeading(from.latitude, from.longitude, to.latitude, to.longitude);
+        if (to.id.startsWith('contour-node')) {
+          steps.push(`Skirt around building perimeter (${heading}) for ${Math.round(segmentDist)}m`);
+        } else {
+          steps.push(`Head ${heading} towards ${to.label} (${Math.round(segmentDist)}m)`);
+        }
       }
 
       steps.push(`Arrive at ${targetLabel}`);
       setTotalDistance(Math.round(distanceMeters));
       setGuideSteps(steps);
-    } else if (finalRoute.length === 1) {
       setTotalDistance(0);
       setGuideSteps([`You are already at ${targetLabel}.`]);
     }

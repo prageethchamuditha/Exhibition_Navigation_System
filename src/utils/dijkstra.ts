@@ -1,4 +1,5 @@
 import { type NavigationNode, type NavigationEdge } from '../lib/supabase';
+import { type BuildingRectangle, segmentIntersectsAnyBuilding } from './geometry';
 
 /**
  * Equirectangular approximation for short-range distance (< 1 km).
@@ -97,7 +98,8 @@ export function calculateShortestPathWithSnapping(
   nodes: NavigationNode[],
   edges: NavigationEdge[],
   gpsAccuracy: number | null,
-  gpsThreshold: number
+  gpsThreshold: number,
+  buildingRectangles: BuildingRectangle[] = []
 ): NavigationNode[] {
   if (nodes.length === 0 || !endNodeId) return [];
 
@@ -404,7 +406,7 @@ export function calculateShortestPathWithSnapping(
   }
 
   // 6. Run Dijkstra from start identifier to destination identifier
-  return calculateShortestPath(finalStartId, finalEndId, tempNodes, tempEdges);
+  return calculateShortestPath(finalStartId, finalEndId, tempNodes, tempEdges, buildingRectangles);
 }
 
 /**
@@ -442,7 +444,8 @@ export function calculateShortestPath(
   startId: string,
   endId: string,
   nodes: NavigationNode[],
-  edges: NavigationEdge[]
+  edges: NavigationEdge[],
+  buildingRectangles: BuildingRectangle[] = []
 ): NavigationNode[] {
   if (!startId || !endId || nodes.length === 0) return [];
   if (startId === endId) {
@@ -450,7 +453,7 @@ export function calculateShortestPath(
     return node ? [node] : [];
   }
 
-  // 1. Build Adjacency Graph
+  // 1. Build Adjacency Graph (blocking edges that cross building rectangles)
   const graph: GraphAdjacency = {};
   nodes.forEach((n) => {
     graph[n.id] = [];
@@ -459,6 +462,20 @@ export function calculateShortestPath(
   edges.forEach((edge) => {
     // Ensure both nodes exist in nodes list
     if (graph[edge.from_node_id] && graph[edge.to_node_id]) {
+      const nodeA = nodes.find((n) => n.id === edge.from_node_id);
+      const nodeB = nodes.find((n) => n.id === edge.to_node_id);
+
+      if (nodeA && nodeB && buildingRectangles.length > 0) {
+        const crossesBuilding = segmentIntersectsAnyBuilding(
+          nodeA.latitude,
+          nodeA.longitude,
+          nodeB.latitude,
+          nodeB.longitude,
+          buildingRectangles
+        );
+        if (crossesBuilding) return; // Skip blocked edge crossing building rectangle
+      }
+
       const weight = edge.distance > 0 ? edge.distance : 1;
       
       graph[edge.from_node_id].push({ toId: edge.to_node_id, weight });

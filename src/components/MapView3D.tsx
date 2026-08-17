@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // MapLibre GL v6 + Vite: must set worker URL before any Map instance is created.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { type Store, type NavigationNode, type NavigationEdge } from '../lib/supabase';
-import { createKalawanaSchool3DLayer, fetchCalibrationFromSupabase } from './KalawanaSchool3DLayer';
+import { createKalawanaSchool3DLayer, fetchCalibrationFromSupabase, getCampusStoreLocation } from './KalawanaSchool3DLayer';
 
 // Register worker — safe to call multiple times (idempotent)
 maplibregl.setWorkerUrl(workerUrl as unknown as string);
@@ -130,15 +130,18 @@ export function MapView3D({
     storeMarkersRef.current.forEach((mk) => mk.remove());
     storeMarkersRef.current = [];
 
-    stores.forEach((store) => {
-      if (!store.latitude || !store.longitude) return;
+    stores.forEach((store, index) => {
+      const pos = getCampusStoreLocation(store, index);
 
       const isDestination =
         route.length > 0 && route[route.length - 1].store_id === store.id;
       const catColor = store.categories?.color || '#6366f1';
 
-      const el = document.createElement('div');
-      el.style.cssText = `
+      const container = document.createElement('div');
+      container.style.cssText = 'cursor:pointer;position:relative;width:max-content;display:inline-block;';
+
+      const inner = document.createElement('div');
+      inner.style.cssText = `
         width:${isDestination ? 36 : 28}px;
         height:${isDestination ? 36 : 28}px;
         border-radius:50%;
@@ -147,21 +150,23 @@ export function MapView3D({
         box-shadow:${isDestination ? `0 0 0 5px ${catColor}44,` : ''}0 2px 8px rgba(0,0,0,0.65);
         display:flex;align-items:center;justify-content:center;
         color:#fff;font-size:0.68rem;font-weight:800;
-        cursor:pointer;overflow:hidden;
-        transition:transform 0.15s;
+        overflow:hidden;
+        transition:transform 0.15s ease;
       `;
       if (store.logo_url) {
         const img = document.createElement('img');
         img.src = store.logo_url;
         img.alt = store.name;
         img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-        el.appendChild(img);
+        inner.appendChild(img);
       } else {
-        el.textContent = store.name?.[0]?.toUpperCase() ?? '?';
+        inner.textContent = store.name?.[0]?.toUpperCase() ?? '?';
       }
 
-      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.25)'; });
-      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
+      container.appendChild(inner);
+
+      container.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.25)'; });
+      container.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });
 
       const popup = new maplibregl.Popup({ offset: 20, closeButton: false })
         .setHTML(`
@@ -178,8 +183,8 @@ export function MapView3D({
           </div>
         `);
 
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([store.longitude, store.latitude])
+      const marker = new maplibregl.Marker({ element: container, anchor: 'center' })
+        .setLngLat([pos.lng, pos.lat])
         .setPopup(popup)
         .addTo(m);
 

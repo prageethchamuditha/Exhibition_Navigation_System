@@ -12,6 +12,7 @@ import {
   saveCalibration,
   saveCalibrationToSupabase,
   fetchCalibrationFromSupabase,
+  getCampusStoreLocation,
   DEFAULT_CALIBRATION,
   type KalawanaCustomLayerInterface,
   type CalibrationConfig,
@@ -129,10 +130,16 @@ export function Map3DPage() {
       .from('stores')
       .select('*, categories:category_id(id, name, color)')
       .eq('is_active', true)
-      .not('latitude', 'is', null)
-      .not('longitude', 'is', null)
       .then(({ data }) => {
-        if (data) setStores(data as Store[]);
+        if (!data) return;
+
+        // Map stores to campus building centroids (fallback for off-campus coords)
+        const processedStores: Store[] = data.map((store, index) => {
+          const loc = getCampusStoreLocation(store, index);
+          return { ...store, latitude: loc.lat, longitude: loc.lng };
+        });
+
+        setStores(processedStores);
       });
   }, []);
 
@@ -243,43 +250,102 @@ export function Map3DPage() {
     };
   }, []);
 
-  // ── Add store markers & school facility markers ───────────────
+  // ── Add store markers ─────────────────────────────────────────
   useEffect(() => {
     if (!mapLoaded || !map.current) return;
 
-    // Remove old markers
     markersRef.current.forEach((mk) => mk.remove());
     markersRef.current = [];
 
-
-
     stores.forEach((store) => {
-      if (!store.latitude || !store.longitude) return;
+      if (store.latitude == null || store.longitude == null) return;
 
-      const el = document.createElement('div');
-      el.style.cssText = `
-        width: 36px; height: 36px; border-radius: 50%;
-        background: linear-gradient(135deg, #6366f1, #a855f7);
-        border: 2.5px solid rgba(255,255,255,0.8);
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer; box-shadow: 0 4px 16px rgba(99,102,241,0.55);
-        font-size: 14px; color: white; font-weight: 700;
-        transition: transform 0.2s;
-      `;
-      el.textContent = (store.name?.[0] ?? '?').toUpperCase();
-      el.title = store.name;
+      const catColor = store.categories?.color || '#6366f1';
+      const isSelected = selectedStore?.id === store.id;
 
-      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.25)'; });
-      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
-      el.addEventListener('click', () => setSelectedStore(store));
+      // ── Compact pin-dot marker (doesn't stretch during 3D rotation) ──
+      const container = document.createElement('div');
+      container.style.cssText = [
+        'cursor: pointer;',
+        'display: flex;',
+        'flex-direction: column;',
+        'align-items: center;',
+        'width: fit-content;',
+        'pointer-events: auto;',
+      ].join('');
 
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      // Floating label above the dot
+      const label = document.createElement('div');
+      label.style.cssText = [
+        `background: ${isSelected ? 'linear-gradient(135deg,#6366f1,#a855f7)' : 'rgba(8,8,22,0.92)'};`,
+        `border: 1.5px solid ${catColor};`,
+        'border-radius: 8px;',
+        'padding: 3px 8px;',
+        'margin-bottom: 4px;',
+        'white-space: nowrap;',
+        'display: flex;',
+        'align-items: center;',
+        'gap: 5px;',
+        `box-shadow: 0 2px 10px rgba(0,0,0,0.7), 0 0 6px ${catColor}66;`,
+        'pointer-events: none;',
+        'transition: transform 0.15s ease;',
+      ].join('');
+
+      const initial = document.createElement('span');
+      initial.style.cssText = [
+        `background: ${catColor};`,
+        'border-radius: 4px;',
+        'width: 16px; height: 16px;',
+        'display: inline-flex; align-items: center; justify-content: center;',
+        'font-size: 9px; font-weight: 900; color: #fff;',
+        'flex-shrink: 0;',
+      ].join('');
+      initial.textContent = (store.name?.[0] ?? '?').toUpperCase();
+
+      const name = document.createElement('span');
+      name.style.cssText = 'font-size: 11px; font-weight: 700; color: #fff; font-family: system-ui, sans-serif;';
+      name.textContent = store.name;
+
+      label.appendChild(initial);
+      label.appendChild(name);
+
+      // Dot anchor (the point that sits ON the building)
+      const dot = document.createElement('div');
+      dot.style.cssText = [
+        `width: ${isSelected ? 14 : 10}px;`,
+        `height: ${isSelected ? 14 : 10}px;`,
+        'border-radius: 50%;',
+        `background: ${catColor};`,
+        'border: 2px solid #fff;',
+        `box-shadow: 0 0 0 ${isSelected ? 4 : 2}px ${catColor}55, 0 2px 6px rgba(0,0,0,0.8);`,
+        'transition: all 0.15s ease;',
+      ].join('');
+
+      container.appendChild(label);
+      container.appendChild(dot);
+
+      container.addEventListener('mouseenter', () => {
+        label.style.transform = 'scale(1.08) translateY(-2px)';
+        dot.style.transform = 'scale(1.3)';
+      });
+      container.addEventListener('mouseleave', () => {
+        label.style.transform = '';
+        dot.style.transform = '';
+      });
+      container.addEventListener('click', () => {
+        setSelectedStore(store);
+        flyToStore(store);
+      });
+
+      // anchor:'bottom' means the bottom of the container element (the dot) is
+      // pinned to the exact [lng, lat] — stays correct during pitch/rotation
+      const marker = new maplibregl.Marker({ element: container, anchor: 'bottom' })
         .setLngLat([store.longitude, store.latitude])
         .addTo(map.current!);
 
       markersRef.current.push(marker);
     });
-  }, [mapLoaded, stores]);
+  }, [mapLoaded, stores, selectedStore]);
 
   // ── Controls ─────────────────────────────────────────────────
   const resetView = () => {
