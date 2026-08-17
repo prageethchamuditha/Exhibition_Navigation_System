@@ -318,40 +318,12 @@ export interface KalawanaCustomLayerInterface extends maplibregl.CustomLayerInte
   setSelectedBuildingHandler(handler: ((buildingId: string | null) => void) | null): void;
 }
 
-export const CAMPUS_BUILDING_CENTROIDS: Array<{ name: string; lat: number; lng: number }> = [
-  { name: 'Main Hall A',          lat: 6.535532, lng: 80.401150 }, // Building #13
-  { name: 'Auditorium & Library', lat: 6.535438, lng: 80.401044 }, // Building #21
-  { name: 'Primary Section',      lat: 6.535388, lng: 80.400886 }, // Building #24
-  { name: 'Senior Secondary',     lat: 6.535305, lng: 80.401169 }, // Building #31
-  { name: 'Sports Complex',       lat: 6.535313, lng: 80.400905 }, // Building #30
-  { name: 'Science Lab',          lat: 6.535491, lng: 80.401005 }, // Building #17
-  { name: 'Tech Block',           lat: 6.535486, lng: 80.401083 }, // Building #18
-  { name: 'Roadside Pavilion A',  lat: 6.535795, lng: 80.400749 }, // Building #1
-  { name: 'Roadside Pavilion B',  lat: 6.535731, lng: 80.400838 }, // Building #2
-];
-
-export function getBuildingCentroidLatLng(
-  corners: [number, number][],
-  calibration?: Partial<CalibrationConfig>
-): { lat: number; lng: number } {
-  const worldPts = corners.map(([px, py]) => toWorld(px, py));
-  const cx = worldPts.reduce((s, p) => s + p.x, 0) / worldPts.length;
-  const cz = worldPts.reduce((s, p) => s + p.z, 0) / worldPts.length;
-
-  const globalLatShift = calibration?.latOffsetMeters || 0;
-  const globalLngShift = calibration?.lngOffsetMeters || 0;
-
-  const totalAnchorLat = KALAWANA_ANCHOR_LAT + globalLatShift / 111320;
-  const totalAnchorLng = KALAWANA_ANCHOR_LNG + globalLngShift / (111320 * Math.cos((KALAWANA_ANCHOR_LAT * Math.PI) / 180));
-
-  const deltaLat = (-cz) / 111320;
-  const deltaLng = cx / (111320 * Math.cos((totalAnchorLat * Math.PI) / 180));
-
-  return {
-    lat: Number((totalAnchorLat + deltaLat).toFixed(6)),
-    lng: Number((totalAnchorLng + deltaLng).toFixed(6)),
-  };
-}
+// ── Campus Store Positioning ──────────────────────────────────
+// The anchor is the exact geographic centre of the 3D campus model.
+// Off-campus stores (wrong DB coordinates) are placed in a small ring
+// around the anchor so they always appear ON the campus in every map view.
+const CAMPUS_RING_RADIUS_LAT = 0.00006;  // ~6.7 m north/south
+const CAMPUS_RING_RADIUS_LNG = 0.00007;  // ~7.8 m east/west
 
 export function isNearKalawanaCampus(lat?: number | null, lng?: number | null): boolean {
   return lat != null && lng != null && lat >= 6.530 && lat <= 6.540 && lng >= 80.395 && lng <= 80.407;
@@ -360,19 +332,23 @@ export function isNearKalawanaCampus(lat?: number | null, lng?: number | null): 
 /**
  * Returns the best campus lat/lng for a store marker.
  * • If the store already has valid campus coords → use them directly.
- * • Otherwise → round-robin across CAMPUS_BUILDING_CENTROIDS using the stable
- *   store index so every store gets a unique, deterministic campus building.
+ * • Otherwise → place in a small ring around the campus anchor so the
+ *   marker always appears ON the 3D school model.
  */
 export function getCampusStoreLocation(
   store: { name?: string; latitude?: number | null; longitude?: number | null },
   index: number,
-  _calibration?: Partial<CalibrationConfig>
+  _calibration?: unknown
 ): { lat: number; lng: number } {
   if (isNearKalawanaCampus(store.latitude, store.longitude)) {
     return { lat: store.latitude!, lng: store.longitude! };
   }
-  const centroid = CAMPUS_BUILDING_CENTROIDS[index % CAMPUS_BUILDING_CENTROIDS.length];
-  return { lat: centroid.lat, lng: centroid.lng };
+  // Spread off-campus stores evenly around the campus centre
+  const angle = (index / 5) * 2 * Math.PI; // 5 slots cover 360°
+  return {
+    lat: Number((KALAWANA_ANCHOR_LAT + CAMPUS_RING_RADIUS_LAT * Math.sin(angle)).toFixed(6)),
+    lng: Number((KALAWANA_ANCHOR_LNG + CAMPUS_RING_RADIUS_LNG * Math.cos(angle)).toFixed(6)),
+  };
 }
 
 // ── MapLibre CustomLayerInterface Factory ──────────────────────
