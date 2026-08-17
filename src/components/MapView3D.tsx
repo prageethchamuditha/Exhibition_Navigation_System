@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 // MapLibre GL v6 + Vite: must set worker URL before any Map instance is created.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { type Store, type NavigationNode, type NavigationEdge } from '../lib/supabase';
-import { createKalawanaSchool3DLayer, fetchCalibrationFromSupabase, getCampusStoreLocation } from './KalawanaSchool3DLayer';
+import { createKalawanaSchool3DLayer, fetchCalibrationFromSupabase } from './KalawanaSchool3DLayer';
 
 // Register worker — safe to call multiple times (idempotent)
 maplibregl.setWorkerUrl(workerUrl as unknown as string);
@@ -130,15 +130,16 @@ export function MapView3D({
     storeMarkersRef.current.forEach((mk) => mk.remove());
     storeMarkersRef.current = [];
 
-    stores.forEach((store, index) => {
-      const pos = getCampusStoreLocation(store, index);
+    stores.forEach((store) => {
+      // Stores arrive pre-positioned from the parent (MapPage) — use as-is
+      if (!store.latitude || !store.longitude) return;
 
       const isDestination =
         route.length > 0 && route[route.length - 1].store_id === store.id;
       const catColor = store.categories?.color || '#6366f1';
 
       const container = document.createElement('div');
-      container.style.cssText = 'cursor:pointer;position:relative;width:max-content;display:inline-block;';
+      container.style.cssText = 'cursor:pointer;position:relative;display:inline-flex;width:fit-content;';
 
       const inner = document.createElement('div');
       inner.style.cssText = `
@@ -184,7 +185,7 @@ export function MapView3D({
         `);
 
       const marker = new maplibregl.Marker({ element: container, anchor: 'center' })
-        .setLngLat([pos.lng, pos.lat])
+        .setLngLat([store.longitude, store.latitude])
         .setPopup(popup)
         .addTo(m);
 
