@@ -20,7 +20,14 @@
   --radius-lg:       1rem;
   --radius-xl:       1.5rem;
   --shadow-glow:     0 0 40px rgba(99,102,241,0.25);
+
+  /* iOS safe-area insets (notch / home bar) */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
 }
+
 
 /* ── Base ────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

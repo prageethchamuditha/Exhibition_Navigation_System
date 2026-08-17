@@ -518,8 +518,6 @@ export function MapPage() {
       steps.push(`Arrive at ${targetLabel}`);
       setTotalDistance(Math.round(distanceMeters));
       setGuideSteps(steps);
-      setTotalDistance(0);
-      setGuideSteps([`You are already at ${targetLabel}.`]);
     }
   }
 
@@ -1067,14 +1065,14 @@ export function MapPage() {
                     <Route size={20} />
                   </div>
                   <div>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'clamp(140px, 40vw, 240px)' }}>
                       Navigating to {selectedDestinationStoreId
                         ? (stores.find((s) => s.id === selectedDestinationStoreId)?.name || 'Exhibitor')
                         : (nodes.find((n) => n.id === selectedDestinationNodeId)?.label || 'Facility')}
                     </h3>
                     <p style={{ fontSize: '0.8rem', color: 'var(--color-muted)', margin: 0 }}>
                       <span style={{ color: 'var(--color-accent)', fontWeight: 700 }}>{totalDistance} m</span>
-                      {' · '}Est: {totalDistance / 1.0 < 60 ? '< 1 min' : `${Math.ceil(totalDistance / 1.0 / 60)} min`}
+                      {' · '}Est: {totalDistance < 80 ? '< 1 min' : `${Math.ceil(totalDistance / 80)} min`}
                       {/* GPS accuracy indicator — only shown when real GPS is active */}
                       {!mockMode && gpsAccuracy !== null && (
                         <span style={{
