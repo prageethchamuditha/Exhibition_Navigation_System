@@ -380,7 +380,7 @@ export function createKalawanaSchool3DLayer(
   id = 'kalawana-school-3d',
   initialCalibration?: CalibrationConfig
 ): KalawanaCustomLayerInterface {
-  let camera: THREE.Camera;
+  let camera: THREE.PerspectiveCamera;
   let scene: THREE.Scene;
   let renderer: THREE.WebGLRenderer;
   let mapInstance: maplibregl.Map;
@@ -566,7 +566,7 @@ export function createKalawanaSchool3DLayer(
 
     onAdd(map: maplibregl.Map, gl: WebGLRenderingContext) {
       mapInstance = map;
-      camera = new THREE.Camera();
+      camera = new THREE.PerspectiveCamera(); // matrix overridden by MapLibre each frame
       scene = new THREE.Scene();
 
       // Lighting Setup matching prototype

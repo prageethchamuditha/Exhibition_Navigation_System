@@ -376,49 +376,57 @@ export function Map3DPage() {
 
   // ── Render ───────────────────────────────────────────────────
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#0a0a1a' }}>
+    <div style={{ width: '100vw', height: '100dvh', position: 'relative', overflow: 'hidden', background: '#0a0a1a' }}>
 
       {/* Map container */}
       <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
 
       {/* ── Top bar ─────────────────────────────────── */}
-      <div style={{
-        position: 'absolute', top: 16, left: 16, right: 16,
+      <div className="map3d-topbar" style={{
+        position: 'absolute',
+        top: 0, left: 0, right: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: '0.75rem', pointerEvents: 'none',
+        gap: '0.5rem',
+        padding: '0.6rem 0.75rem',
+        paddingTop: 'calc(0.6rem + var(--safe-top))',
+        pointerEvents: 'none',
+        zIndex: 100,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', pointerEvents: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', pointerEvents: 'auto', minWidth: 0, flex: 1 }}>
           <Link
             to="/map"
             style={{
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.45rem 0.9rem', borderRadius: 10,
-              background: 'rgba(10,10,26,0.85)', backdropFilter: 'blur(12px)',
+              display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0,
+              padding: '0.45rem 0.75rem', borderRadius: 10,
+              background: 'rgba(10,10,26,0.88)', backdropFilter: 'blur(12px)',
               border: '1px solid rgba(255,255,255,0.12)', color: '#fff',
               textDecoration: 'none', fontSize: '0.82rem', fontWeight: 600,
               boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+              whiteSpace: 'nowrap',
             }}
           >
-            <ArrowLeft size={15} /> Back to Map
+            <ArrowLeft size={15} /> <span className="map3d-back-label">Back to Map</span>
           </Link>
 
-          <div style={{
-            padding: '0.45rem 1rem', borderRadius: 10,
-            background: 'rgba(10,10,26,0.85)', backdropFilter: 'blur(12px)',
+          <div className="map3d-title-pill" style={{
+            padding: '0.45rem 0.9rem', borderRadius: 10, minWidth: 0,
+            background: 'rgba(10,10,26,0.88)', backdropFilter: 'blur(12px)',
             border: '1px solid rgba(99,102,241,0.35)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden',
           }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <GraduationCap size={16} color="#a855f7" /> Kalawana School (3D School)
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <GraduationCap size={15} color="#a855f7" style={{ flexShrink: 0 }} />
+              <span className="map3d-title-text">Kalawana School (3D)</span>
             </div>
-            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)', marginTop: 1, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <MapPin size={10} color="#22d3ee" /> GCP2+5C6, Kalawana · Sri Lanka
+            <div className="map3d-subtitle" style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.45)', marginTop: 1, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <MapPin size={9} color="#22d3ee" /> GCP2+5C6, Kalawana
             </div>
           </div>
         </div>
 
         {isMainAdmin && (
-          <div style={{ display: 'flex', gap: '0.5rem', pointerEvents: 'auto' }}>
+          <div style={{ display: 'flex', gap: '0.4rem', pointerEvents: 'auto', flexShrink: 0 }}>
             <button
               onClick={() => {
                 if (showCalibrationModal) handleCancelCalibration();
@@ -426,20 +434,20 @@ export function Map3DPage() {
               }}
               title="Calibrate 3D Model Scale, Position & Rotation (Main Admin Only)"
               style={{
-                padding: '0.45rem 0.85rem', borderRadius: 10,
+                padding: '0.45rem 0.75rem', borderRadius: 10,
                 background: showCalibrationModal
                   ? 'linear-gradient(135deg, #6366f1, #a855f7)'
-                  : 'rgba(10,10,26,0.85)',
+                  : 'rgba(10,10,26,0.88)',
                 backdropFilter: 'blur(12px)',
                 border: '1px solid rgba(99,102,241,0.4)', color: '#fff',
-                fontSize: '0.78rem', fontWeight: 600,
+                fontSize: '0.75rem', fontWeight: 600,
                 boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
                 display: 'flex', alignItems: 'center', gap: '0.4rem',
-                cursor: 'pointer',
+                cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
-              <Settings size={14} color="#a855f7" />
-              Calibrate Size/Pos
+              <Settings size={13} color="#a855f7" />
+              <span className="map3d-calibrate-label">Calibrate</span>
             </button>
           </div>
         )}
@@ -448,11 +456,12 @@ export function Map3DPage() {
       {/* ── Toast notification popup ─────────────────── */}
       {toastMessage && (
         <div style={{
-          position: 'absolute', top: 80, left: '50%', transform: 'translateX(-50%)',
+          position: 'absolute', top: 'calc(var(--safe-top) + 68px)', left: '50%', transform: 'translateX(-50%)',
           zIndex: 1100, background: 'rgba(16, 185, 129, 0.95)', color: '#fff',
-          padding: '0.6rem 1.2rem', borderRadius: 10, backdropFilter: 'blur(12px)',
-          boxShadow: '0 8px 30px rgba(0,0,0,0.5)', fontWeight: 600, fontSize: '0.85rem',
+          padding: '0.55rem 1.1rem', borderRadius: 10, backdropFilter: 'blur(12px)',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.5)', fontWeight: 600, fontSize: '0.82rem',
           display: 'flex', alignItems: 'center', gap: '0.5rem',
+          whiteSpace: 'nowrap', maxWidth: 'calc(100vw - 2rem)',
         }}>
           {toastMessage}
         </div>
@@ -471,27 +480,28 @@ export function Map3DPage() {
         />
       )}
 
-      {/* ── Left control buttons ─────────────────────── */}
-      <div style={{
-        position: 'absolute', top: '50%', left: 16,
+      {/* ── Left / bottom-right control buttons ──────── */}
+      <div className="map3d-controls" style={{
+        position: 'absolute', top: '50%', left: 12,
         transform: 'translateY(-50%)',
-        display: 'flex', flexDirection: 'column', gap: '0.5rem',
+        display: 'flex', flexDirection: 'column', gap: '0.4rem',
+        zIndex: 50,
       }}>
         {[
-          { icon: <ZoomIn size={16} />, title: 'Zoom In', onClick: () => map.current?.zoomIn() },
-          { icon: <ZoomOut size={16} />, title: 'Zoom Out', onClick: () => map.current?.zoomOut() },
-          { icon: <RotateCcw size={16} />, title: 'Reset View', onClick: resetView },
-          { icon: <Layers size={16} />, title: is3D ? 'Switch to 2D' : 'Switch to 3D', onClick: toggle3D, active: is3D },
+          { icon: <ZoomIn size={15} />, title: 'Zoom In', onClick: () => map.current?.zoomIn() },
+          { icon: <ZoomOut size={15} />, title: 'Zoom Out', onClick: () => map.current?.zoomOut() },
+          { icon: <RotateCcw size={15} />, title: 'Reset View', onClick: resetView },
+          { icon: <Layers size={15} />, title: is3D ? 'Switch to 2D' : 'Switch to 3D', onClick: toggle3D, active: is3D },
         ].map((btn, i) => (
           <button
             key={i}
             title={btn.title}
             onClick={btn.onClick}
             style={{
-              width: 38, height: 38, borderRadius: 10,
+              width: 36, height: 36, borderRadius: 9,
               background: btn.active
                 ? 'linear-gradient(135deg, #6366f1, #a855f7)'
-                : 'rgba(10,10,26,0.85)',
+                : 'rgba(10,10,26,0.88)',
               backdropFilter: 'blur(12px)',
               border: btn.active
                 ? '1px solid rgba(99,102,241,0.5)'
@@ -509,110 +519,118 @@ export function Map3DPage() {
 
       {/* ── Bottom exhibitor pill bar ─────────────────── */}
       {stores.length > 0 && (
-        <div style={{
-          position: 'absolute', bottom: 16, left: 16, right: 60,
+        <div className="map3d-bottom-bar" style={{
+          position: 'absolute',
+          bottom: 'calc(var(--safe-bottom) + 12px)',
+          left: 52, right: 12,
           background: 'rgba(10,10,26,0.88)', backdropFilter: 'blur(16px)',
-          border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14,
-          padding: '0.75rem 1rem',
+          border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12,
+          padding: '0.6rem 0.75rem',
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          maxHeight: 110, overflowX: 'auto', overflowY: 'hidden',
+          zIndex: 50,
         }}>
-          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', minWidth: 'max-content' }}>
-            <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-              EXHIBITORS
-            </span>
-            {stores.map((store) => (
-              <button
-                key={store.id}
-                onClick={() => { setSelectedStore(store); flyToStore(store); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.5rem',
-                  padding: '0.4rem 0.8rem', borderRadius: 20,
-                  background: selectedStore?.id === store.id
-                    ? 'linear-gradient(135deg, #6366f1, #a855f7)'
-                    : 'rgba(255,255,255,0.07)',
-                  border: selectedStore?.id === store.id
-                    ? '1px solid rgba(99,102,241,0.5)'
-                    : '1px solid rgba(255,255,255,0.1)',
-                  color: '#fff', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
-                  whiteSpace: 'nowrap', transition: 'all 0.2s',
-                }}
-              >
-                <span style={{
-                  width: 20, height: 20, borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.15)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '0.65rem', fontWeight: 800,
-                }}>
-                  {store.name?.[0]?.toUpperCase()}
-                </span>
-                {store.name}
-              </button>
-            ))}
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: 'max-content' }}>
+              <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.38)', fontWeight: 700, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>
+                EXHIBITORS
+              </span>
+              {stores.map((store) => (
+                <button
+                  key={store.id}
+                  onClick={() => { setSelectedStore(store); flyToStore(store); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                    padding: '0.35rem 0.7rem', borderRadius: 20,
+                    background: selectedStore?.id === store.id
+                      ? 'linear-gradient(135deg, #6366f1, #a855f7)'
+                      : 'rgba(255,255,255,0.07)',
+                    border: selectedStore?.id === store.id
+                      ? '1px solid rgba(99,102,241,0.5)'
+                      : '1px solid rgba(255,255,255,0.1)',
+                    color: '#fff', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600,
+                    whiteSpace: 'nowrap', transition: 'all 0.2s', flexShrink: 0,
+                  }}
+                >
+                  <span style={{
+                    width: 18, height: 18, borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.15)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.6rem', fontWeight: 800, flexShrink: 0,
+                  }}>
+                    {store.name?.[0]?.toUpperCase()}
+                  </span>
+                  {store.name}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
       {/* ── Selected store info card ──────────────────── */}
       {selectedStore && (
-        <div style={{
-          position: 'absolute', top: 80, right: 16, width: 260,
-          background: 'rgba(10,10,26,0.92)', backdropFilter: 'blur(16px)',
+        <div className="map3d-store-card" style={{
+          position: 'absolute',
+          bottom: 'calc(var(--safe-bottom) + 92px)',
+          right: 12,
+          width: 'min(260px, calc(100vw - 24px))',
+          background: 'rgba(10,10,26,0.94)', backdropFilter: 'blur(16px)',
           border: '1px solid rgba(99,102,241,0.35)', borderRadius: 14,
-          padding: '1rem',
+          padding: '0.9rem',
           boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-          animation: 'fadeInRight 0.25s ease',
+          animation: 'fadeInUp 0.25s ease',
+          zIndex: 60,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
             <div style={{
-              width: 40, height: 40, borderRadius: 10,
+              width: 38, height: 38, borderRadius: 9,
               background: 'linear-gradient(135deg, #6366f1, #a855f7)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '1.1rem', fontWeight: 800, color: '#fff',
+              fontSize: '1rem', fontWeight: 800, color: '#fff', flexShrink: 0,
             }}>
               {selectedStore.name?.[0]?.toUpperCase()}
             </div>
             <button
               onClick={() => setSelectedStore(null)}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1, padding: '0.2rem' }}
             >×</button>
           </div>
 
-          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff', marginBottom: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#fff', marginBottom: 3 }}>
             {selectedStore.name}
           </div>
 
           {selectedStore.description && (
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
-              {selectedStore.description.slice(0, 100)}{selectedStore.description.length > 100 ? '…' : ''}
+            <div style={{ fontSize: '0.76rem', color: 'rgba(255,255,255,0.5)', marginBottom: '0.65rem', lineHeight: 1.5 }}>
+              {selectedStore.description.slice(0, 90)}{selectedStore.description.length > 90 ? '…' : ''}
             </div>
           )}
 
           {selectedStore.floor && (
-            <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginBottom: '0.75rem' }}>
+            <div style={{ fontSize: '0.73rem', color: 'rgba(255,255,255,0.38)', marginBottom: '0.65rem' }}>
               📍 Floor {selectedStore.floor}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.4rem' }}>
             <button
               onClick={() => flyToStore(selectedStore)}
               style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem',
-                padding: '0.45rem', borderRadius: 8,
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem',
+                padding: '0.4rem', borderRadius: 8,
                 background: 'linear-gradient(135deg, #6366f1, #a855f7)',
-                border: 'none', color: '#fff', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer',
+                border: 'none', color: '#fff', fontWeight: 600, fontSize: '0.76rem', cursor: 'pointer',
               }}
             >
-              <Navigation size={13} /> Fly To
+              <Navigation size={12} /> Fly To
             </button>
             <Link
               to={`/stores/${selectedStore.id}`}
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: '0.45rem', borderRadius: 8,
+                padding: '0.4rem', borderRadius: 8,
                 background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
-                color: '#fff', fontWeight: 600, fontSize: '0.78rem', textDecoration: 'none',
+                color: '#fff', fontWeight: 600, fontSize: '0.76rem', textDecoration: 'none',
               }}
             >
               Details
@@ -627,6 +645,7 @@ export function Map3DPage() {
           position: 'absolute', inset: 0,
           background: '#0a0a1a', display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', gap: '1rem',
+          zIndex: 200,
         }}>
           <div style={{
             width: 52, height: 52, borderRadius: 14,
@@ -649,6 +668,10 @@ export function Map3DPage() {
           from { opacity: 0; transform: translateX(20px); }
           to   { opacity: 1; transform: translateX(0); }
         }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
         .maplibregl-ctrl-group {
           background: rgba(10,10,26,0.85) !important;
           border: 1px solid rgba(255,255,255,0.1) !important;
@@ -668,6 +691,39 @@ export function Map3DPage() {
           border-radius: 6px !important;
         }
         .maplibregl-ctrl-attrib a { color: rgba(255,255,255,0.5) !important; }
+        /* Hide bottom-right MapLibre controls on mobile to prevent overlap */
+        @media (max-width: 480px) {
+          .maplibregl-ctrl-bottom-right { display: none !important; }
+          .map3d-back-label { display: none; }
+          .map3d-calibrate-label { display: none; }
+          .map3d-title-text::after { content: '3D'; }
+          .map3d-title-text { font-size: 0.78rem; }
+          .map3d-subtitle { display: none; }
+          .map3d-controls {
+            top: auto !important;
+            bottom: calc(var(--safe-bottom, 0px) + 90px) !important;
+            left: auto !important;
+            right: 10px !important;
+            transform: none !important;
+          }
+          .map3d-bottom-bar {
+            left: 0 !important;
+            right: 0 !important;
+            border-radius: 0 !important;
+            border-left: none !important;
+            border-right: none !important;
+            bottom: calc(var(--safe-bottom, 0px) + 0px) !important;
+          }
+          .map3d-store-card {
+            bottom: calc(var(--safe-bottom, 0px) + 68px) !important;
+            right: 8px !important;
+            left: 8px !important;
+            width: auto !important;
+          }
+        }
+        @media (max-width: 380px) {
+          .map3d-title-pill { display: none; }
+        }
       `}</style>
     </div>
   );
