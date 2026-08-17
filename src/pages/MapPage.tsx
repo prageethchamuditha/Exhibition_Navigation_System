@@ -192,8 +192,13 @@ export function MapPage() {
         activeStores.unshift(kalawanaSchoolStore);
       }
 
+      // Kalawana landmark keeps its exact coord; real stores are mapped to campus buildings
       const processedStores: StoreType[] = activeStores.map((store, index) => {
-        const pos = getCampusStoreLocation(store, index);
+        // Kalawana landmark already has correct coords — skip transformation
+        if (store.id === 'kalawana-national-school-landmark') return store;
+        // For real stores, use a stable index (subtract 1 to offset the landmark at slot 0)
+        const storeIndex = Math.max(0, index - 1);
+        const pos = getCampusStoreLocation(store, storeIndex);
         return { ...store, latitude: pos.lat, longitude: pos.lng };
       });
 
