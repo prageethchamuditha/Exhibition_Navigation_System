@@ -9,7 +9,10 @@ import {
   Store,
   ArrowLeft,
   Bell,
+  Compass,
+  AlertTriangle,
 } from 'lucide-react';
+import { AdminModal } from '../components/admin/AdminModal';
 import { useAuth } from '../contexts/AuthContext';
 import { GPSPermissionBanner } from '../components/GPSPermissionBanner';
 import {
@@ -84,6 +87,27 @@ export function MapPage() {
   const [mapTheme, setMapTheme] = useState<'dark' | 'streets' | 'light' | '3d'>('light');
   const [showMesh, setShowMesh] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+
+  // Settings & Guided Tour states
+  const [exhibitionSettings, setExhibitionSettings] = useState({
+    entrance_latitude: 6.535472,
+    entrance_longitude: 80.401000,
+    entrance_threshold_meters: 20.0,
+    premises_center_latitude: 6.535472,
+    premises_center_longitude: 80.401000,
+    premises_radius_meters: 150.0,
+  });
+
+  const [isFarAway, setIsFarAway] = useState(false);
+  const [isNearEntrance, setIsNearEntrance] = useState(false);
+  const [showEntrancePrompt, setShowEntrancePrompt] = useState(false);
+  const [showChecklistPrompt, setShowChecklistPrompt] = useState(false);
+  const [visitedStallIds, setVisitedStallIds] = useState<string[]>([]);
+  const [guidedTourActive, setGuidedTourActive] = useState(false);
+  const [bypassBoundaryCheck, setBypassBoundaryCheck] = useState(false);
+
+  // Tracks if the user has been prompted about guided tours on startup
+  const hasPromptedRef = useRef(false);
 
   // Bottom sheet drag state (Google Maps style)
   const [navSheetExpanded, setNavSheetExpanded] = useState(false);
@@ -206,6 +230,30 @@ export function MapPage() {
       setNodes(navigationNodes);
       setEdges(navigationEdges);
 
+      // Fetch settings announcement row
+      const { data: settingsData } = await supabase
+        .from('announcements')
+        .select('message')
+        .eq('type', 'settings')
+        .eq('is_active', true)
+        .limit(1);
+
+      if (settingsData && settingsData.length > 0) {
+        try {
+          const parsed = JSON.parse(settingsData[0].message);
+          setExhibitionSettings({
+            entrance_latitude: parsed.entrance_latitude ?? 6.535472,
+            entrance_longitude: parsed.entrance_longitude ?? 80.401000,
+            entrance_threshold_meters: parsed.entrance_threshold_meters ?? 20.0,
+            premises_center_latitude: parsed.premises_center_latitude ?? 6.535472,
+            premises_center_longitude: parsed.premises_center_longitude ?? 80.401000,
+            premises_radius_meters: parsed.premises_radius_meters ?? 150.0,
+          });
+        } catch (jsonErr) {
+          console.warn('Error parsing settings JSON:', jsonErr);
+        }
+      }
+
       // Set default mock start node selection
       const entrances = navigationNodes.filter((n) => n.type === 'entrance');
       if (entrances.length > 0) {
@@ -284,6 +332,31 @@ export function MapPage() {
           setMapCenterLat(lat);
           setMapCenterLng(lng);
         }
+
+        // Proximity and Premises Bounds Checks
+        const distToCenter = getDistance(lat, lng, exhibitionSettings.premises_center_latitude, exhibitionSettings.premises_center_longitude);
+        const far = distToCenter > exhibitionSettings.premises_radius_meters;
+        
+        if (bypassBoundaryCheck) {
+          setIsFarAway(false);
+        } else {
+          setIsFarAway(far);
+        }
+
+        if (!far) {
+          const distToEntrance = getDistance(lat, lng, exhibitionSettings.entrance_latitude, exhibitionSettings.entrance_longitude);
+          const near = distToEntrance <= exhibitionSettings.entrance_threshold_meters;
+          setIsNearEntrance(near);
+
+          if (!hasPromptedRef.current) {
+            hasPromptedRef.current = true;
+            if (near) {
+              setShowEntrancePrompt(true);
+            } else {
+              setShowChecklistPrompt(true);
+            }
+          }
+        }
       },
       (error) => {
         console.warn('GPS location tracking error:', error.message);
@@ -293,6 +366,195 @@ export function MapPage() {
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   }
+
+  // Handle proximity checks in mock location mode
+  useEffect(() => {
+    if (mockMode && mockStartNodeId && nodes.length > 0) {
+      const node = nodes.find(n => n.id === mockStartNodeId);
+      if (node) {
+        setUserLat(node.latitude);
+        setUserLng(node.longitude);
+        const distToCenter = getDistance(node.latitude, node.longitude, exhibitionSettings.premises_center_latitude, exhibitionSettings.premises_center_longitude);
+        const far = distToCenter > exhibitionSettings.premises_radius_meters;
+        
+        if (bypassBoundaryCheck) {
+          setIsFarAway(false);
+        } else {
+          setIsFarAway(far);
+        }
+
+        if (!far) {
+          const distToEntrance = getDistance(node.latitude, node.longitude, exhibitionSettings.entrance_latitude, exhibitionSettings.entrance_longitude);
+          const near = distToEntrance <= exhibitionSettings.entrance_threshold_meters;
+          setIsNearEntrance(near);
+
+          if (!hasPromptedRef.current) {
+            hasPromptedRef.current = true;
+            if (near) {
+              setShowEntrancePrompt(true);
+            } else {
+              setShowChecklistPrompt(true);
+            }
+          }
+        }
+      }
+    }
+  }, [mockMode, mockStartNodeId, nodes, exhibitionSettings, bypassBoundaryCheck]);
+
+  const handleMapClick = useCallback((lat: number, lng: number) => {
+    if (mockMode) {
+      setUserLat(lat);
+      setUserLng(lng);
+
+      // Trigger proximity/guided tour checks for this clicked location
+      const distToCenter = getDistance(lat, lng, exhibitionSettings.premises_center_latitude, exhibitionSettings.premises_center_longitude);
+      const far = distToCenter > exhibitionSettings.premises_radius_meters;
+      
+      if (bypassBoundaryCheck) {
+        setIsFarAway(false);
+      } else {
+        setIsFarAway(far);
+      }
+
+      if (!far) {
+        const distToEntrance = getDistance(lat, lng, exhibitionSettings.entrance_latitude, exhibitionSettings.entrance_longitude);
+        const near = distToEntrance <= exhibitionSettings.entrance_threshold_meters;
+        setIsNearEntrance(near);
+
+        if (!hasPromptedRef.current) {
+          hasPromptedRef.current = true;
+          if (near) {
+            setShowEntrancePrompt(true);
+          } else {
+            setShowChecklistPrompt(true);
+          }
+        }
+      }
+    }
+  }, [mockMode, exhibitionSettings, bypassBoundaryCheck]);
+
+  const generateGuidedTourRoute = (skipIds: string[]) => {
+    // 1. Determine starting point coordinates
+    let startLatVal = userLat;
+    let startLngVal = userLng;
+
+    if (mockMode) {
+      const startNode = nodes.find(n => n.id === mockStartNodeId);
+      if (startNode) {
+        startLatVal = startNode.latitude;
+        startLngVal = startNode.longitude;
+      }
+    }
+
+    if (startLatVal === null || startLngVal === null) {
+      alert('Location not available. Enable GPS or select a mock start node.');
+      return;
+    }
+
+    // 2. Filter unvisited stores
+    const targetStores = stores.filter(s => 
+      s.id !== 'kalawana-national-school-landmark' && 
+      !skipIds.includes(s.id)
+    );
+
+    if (targetStores.length === 0) {
+      alert('All stalls have been visited!');
+      return;
+    }
+
+    setLoading(true);
+    
+    // 3. Nearest Neighbor TSP Algorithm
+    let currentLat = startLatVal;
+    let currentLng = startLngVal;
+    const remaining = [...targetStores];
+    const sequencedRouteNodes: NavigationNode[] = [];
+    
+    while (remaining.length > 0) {
+      let bestIndex = 0;
+      let minDistance = Infinity;
+      
+      for (let i = 0; i < remaining.length; i++) {
+        const store = remaining[i];
+        if (store.latitude !== null && store.longitude !== null) {
+          const d = getDistance(currentLat, currentLng, store.latitude, store.longitude);
+          if (d < minDistance) {
+            minDistance = d;
+            bestIndex = i;
+          }
+        }
+      }
+      
+      const nextStore = remaining[bestIndex];
+      remaining.splice(bestIndex, 1);
+      
+      let targetNode = nodes.find(n => n.store_id === nextStore.id);
+      if (!targetNode) {
+        let closestNode = null;
+        let minNodeDist = Infinity;
+        for (const node of nodes) {
+          const d = getDistance(nextStore.latitude!, nextStore.longitude!, node.latitude, node.longitude);
+          if (d < minNodeDist) {
+            minNodeDist = d;
+            closestNode = node;
+          }
+        }
+        targetNode = closestNode || undefined;
+      }
+
+      if (targetNode) {
+        const fromNode = findClosestNode(currentLat, currentLng, nodes);
+        if (fromNode && targetNode) {
+          const path = calculateShortestPathWithSnapping(
+            currentLat,
+            currentLng,
+            targetNode.latitude,
+            targetNode.longitude,
+            targetNode.id,
+            nodes,
+            edges,
+            gpsAccuracy,
+            GPS_ACCURACY_THRESHOLD,
+            buildingRectangles
+          );
+          
+          if (path && path.length > 0) {
+            if (sequencedRouteNodes.length > 0 && path[0].id === sequencedRouteNodes[sequencedRouteNodes.length - 1].id) {
+              sequencedRouteNodes.push(...path.slice(1));
+            } else {
+              sequencedRouteNodes.push(...path);
+            }
+          }
+        }
+        currentLat = targetNode.latitude;
+        currentLng = targetNode.longitude;
+      }
+    }
+
+    setLoading(false);
+
+    if (sequencedRouteNodes.length > 0) {
+      setCalculatedRoute(sequencedRouteNodes);
+      setGuidedTourActive(true);
+      setNavigationActive(true);
+      setNavSheetExpanded(true);
+      
+      const steps = [`Start Guided Tour visiting ${targetStores.length} stalls.`];
+      let cumulativeDist = 0;
+      for (let i = 0; i < sequencedRouteNodes.length - 1; i++) {
+        const from = sequencedRouteNodes[i];
+        const to = sequencedRouteNodes[i + 1];
+        cumulativeDist += getDistance(from.latitude, from.longitude, to.latitude, to.longitude);
+      }
+      steps.push(`Optimized path covers approximately ${Math.round(cumulativeDist)} meters.`);
+      steps.push(`Follow the dotted cyan path line to visit each stall.`);
+      
+      setTotalDistance(Math.round(cumulativeDist));
+      setGuideSteps(steps);
+    } else {
+      alert('Could not compute routing path. Please check the network graph connection edges.');
+    }
+  };
 
   // Handle deep-linking navigation targets via ?to= query parameters
   // Handle deep-linking navigation targets via query parameters
@@ -734,8 +996,8 @@ export function MapPage() {
               latitude={mapCenterLat}
               longitude={mapCenterLng}
               stores={stores}
-              userLat={mockMode ? null : userLat}
-              userLng={mockMode ? null : userLng}
+              userLat={userLat}
+              userLng={userLng}
               route={calculatedRoute}
               showGraphMesh={showMesh}
               nodes={nodes}
@@ -746,14 +1008,15 @@ export function MapPage() {
               latitude={mapCenterLat}
               longitude={mapCenterLng}
               stores={stores}
-              userLat={mockMode ? null : userLat}
-              userLng={mockMode ? null : userLng}
+              userLat={userLat}
+              userLng={userLng}
               userHeading={mockMode ? null : userHeading}
               route={calculatedRoute}
               theme={mapTheme as 'dark' | 'streets' | 'light'}
               showGraphMesh={showMesh}
               nodes={nodes}
               edges={edges}
+              onMapClick={handleMapClick}
             />
           )}
 
@@ -981,6 +1244,39 @@ export function MapPage() {
                 </label>
               </div>
             )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Guided Tour
+              </label>
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ width: '100%', fontSize: '0.8rem', padding: '0.35rem 0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
+                onClick={() => {
+                  if (isNearEntrance) {
+                    setShowEntrancePrompt(true);
+                  } else {
+                    setShowChecklistPrompt(true);
+                  }
+                }}
+              >
+                <Compass size={14} />
+                {guidedTourActive ? 'Restart Tour' : 'Start Tour'}
+              </button>
+              {guidedTourActive && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: '100%', fontSize: '0.75rem', padding: '0.25rem 0.5rem', color: 'var(--color-danger)' }}
+                  onClick={() => {
+                    setCalculatedRoute([]);
+                    setGuidedTourActive(false);
+                    setNavigationActive(false);
+                  }}
+                >
+                  Cancel Tour
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Mock Location Selector Panel (Renders when GPS signal is inactive) */}
@@ -1172,6 +1468,173 @@ export function MapPage() {
                 ))}
               </div>
             </div>
+          )}
+
+          {/* New Modals for Boundary & Tour check */}
+          {isFarAway && (
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(11, 15, 26, 0.92)',
+              zIndex: 10000,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '2rem',
+              textAlign: 'center',
+              backdropFilter: 'blur(8px)'
+            }}>
+              <div style={{
+                width: '64px',
+                height: '64px',
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#f87171',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '1.5rem'
+              }}>
+                <AlertTriangle size={32} />
+              </div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '1rem', color: '#fff' }}>Reach to the exhibition premises first</h2>
+              <p style={{ color: 'var(--color-muted)', maxWidth: '400px', fontSize: '0.925rem', lineHeight: 1.6, marginBottom: '2rem' }}>
+                You are currently outside the exhibition boundaries. Please proceed to the exhibition center to start the map navigation system.
+              </p>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', marginTop: '1rem' }}>
+                {!mockMode && (
+                  <button className="btn btn-primary" onClick={() => setMockMode(true)}>
+                    Switch to Mock Location
+                  </button>
+                )}
+                <button className="btn btn-ghost" onClick={() => { setBypassBoundaryCheck(true); setIsFarAway(false); hasPromptedRef.current = true; }}>
+                  Bypass (View Map)
+                </button>
+              </div>
+              {mockMode && (
+                <p style={{ color: 'var(--color-accent)', fontSize: '0.85rem', marginTop: '0.75rem' }}>
+                  Tip: Select a mock start node inside the premises or tap the map to test.
+                </p>
+              )}
+            </div>
+          )}
+
+          {showEntrancePrompt && (
+            <AdminModal
+              title="Welcome to the Exhibition!"
+              onClose={() => setShowEntrancePrompt(false)}
+            >
+              <div style={{ padding: '0.5rem 0' }}>
+                <p style={{ fontSize: '0.925rem', lineHeight: 1.6, marginBottom: '1.5rem', color: 'var(--color-text)' }}>
+                  You are detected near the **Entrance Gate**. Would you like to start the guided path tour visiting all stalls in an optimized sequence from the beginning?
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowEntrancePrompt(false);
+                      setShowChecklistPrompt(true);
+                    }}
+                  >
+                    Choose Stalls
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setShowEntrancePrompt(false);
+                      generateGuidedTourRoute([]);
+                    }}
+                  >
+                    Start Guided Tour
+                  </button>
+                </div>
+              </div>
+            </AdminModal>
+          )}
+
+          {showChecklistPrompt && (
+            <AdminModal
+              title="Stall Checklist Guide"
+              onClose={() => setShowChecklistPrompt(false)}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--color-muted)', margin: 0 }}>
+                  Select which stalls you have already watched/visited. We will skip these and calculate the shortest path to navigate the remaining stalls.
+                </p>
+
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '8px',
+                  padding: '0.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem',
+                  maxHeight: '320px'
+                }}>
+                  {stores.filter(s => s.id !== 'kalawana-national-school-landmark').map((store) => {
+                    const checked = visitedStallIds.includes(store.id);
+                    return (
+                      <label
+                        key={store.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          padding: '0.6rem 0.75rem',
+                          borderRadius: '6px',
+                          background: checked ? 'rgba(34, 211, 238, 0.05)' : 'none',
+                          cursor: 'pointer',
+                          border: `1px solid ${checked ? 'rgba(34, 211, 238, 0.2)' : 'transparent'}`
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            if (checked) {
+                              setVisitedStallIds(visitedStallIds.filter(id => id !== store.id));
+                            } else {
+                              setVisitedStallIds([...visitedStallIds, store.id]);
+                            }
+                          }}
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text)' }}>
+                            {store.name}
+                          </span>
+                          {store.floor && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)' }}>
+                              Floor {store.floor}
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setShowChecklistPrompt(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setShowChecklistPrompt(false);
+                      generateGuidedTourRoute(visitedStallIds);
+                    }}
+                  >
+                    Generate Path
+                  </button>
+                </div>
+              </div>
+            </AdminModal>
           )}
         </div>
       </div>
